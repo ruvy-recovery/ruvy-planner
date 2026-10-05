@@ -1,112 +1,177 @@
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-  font-family: 'Segoe UI', sans-serif;
-}
+* { box-sizing: border-box; }
 
 body {
-  background: linear-gradient(135deg, #6a11cb, #2575fc);
+  margin: 0;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  background: linear-gradient(135deg, #1e1b4b, #3730a3, #2563eb);
   min-height: 100vh;
 }
 
-.App {
-  max-width: 600px;
+.app {
+  max-width: 720px;
   margin: 0 auto;
-  padding: 40px 20px;
-  color: white;
+  padding: 40px 16px;
   text-align: center;
 }
 
 header h1 {
-  font-size: 2.5rem;
-  margin-bottom: 5px;
+  color: #fff;
+  font-size: 3rem;
+  margin: 0;
+  text-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
-header p {
-  opacity: 0.9;
+.sous-titre {
+  color: #c7d2fe;
+  margin-top: 8px;
+  font-size: 1.1rem;
+}
+
+.carte {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 20px;
+  padding: 30px;
+  margin-top: 30px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+}
+
+h2 { color: #1e1b4b; margin: 10px 0 20px; }
+
+.formulaire {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
   margin-bottom: 30px;
 }
 
-main {
-  background: white;
-  color: #333;
-  border-radius: 16px;
-  padding: 30px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-}
-
-main h2 {
-  margin-bottom: 15px;
-  font-size: 1.3rem;
-}
-
-main section {
-  margin-bottom: 25px;
-}
-
-input[type="text"] {
-  padding: 10px;
-  width: 65%;
-  border: 2px solid #ddd;
-  border-radius: 8px;
+.formulaire input {
+  flex: 1 1 200px;
+  padding: 12px;
+  border: 2px solid #c7d2fe;
+  border-radius: 10px;
   font-size: 1rem;
 }
 
-input[type="text"]:focus {
-  outline: none;
-  border-color: #6a11cb;
+.formulaire select {
+  padding: 12px;
+  border: 2px solid #c7d2fe;
+  border-radius: 10px;
+  background: #fff;
+  font-size: 0.95rem;
 }
 
-button {
-  padding: 10px 18px;
-  margin-left: 8px;
+.formulaire button {
+  padding: 12px 22px;
+  background: #3730a3;
+  color: #fff;
   border: none;
-  border-radius: 8px;
-  background: #6a11cb;
-  color: white;
+  border-radius: 10px;
   font-weight: bold;
   cursor: pointer;
-  transition: 0.2s;
 }
 
-button:hover {
-  background: #2575fc;
+.formulaire button:hover { background: #4f46e5; }
+
+.jours {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
 }
 
-ul {
-  list-style: none;
-  text-align: left;
+.jour {
+  position: relative;
+  padding: 10px 14px;
+  border: 2px solid #e0e7ff;
+  background: #fff;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
+  color: #3730a3;
 }
+
+.jour.aujourdhui { border-color: #8b5cf6; }
+.jour.actif { background: #3730a3; color: #fff; border-color: #3730a3; }
+
+.badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.7rem;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  line-height: 20px;
+}
+
+.progression {
+  position: relative;
+  background: #e0e7ff;
+  border-radius: 10px;
+  height: 28px;
+  margin-bottom: 20px;
+  overflow: hidden;
+}
+
+.barre {
+  height: 100%;
+  background: linear-gradient(90deg, #8b5cf6, #3b82f6);
+  transition: width 0.4s;
+}
+
+.progression span {
+  position: absolute;
+  inset: 0;
+  line-height: 28px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #1e1b4b;
+}
+
+ul { list-style: none; padding: 0; margin: 0; }
 
 li {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px;
-  border-bottom: 1px solid #eee;
+  gap: 12px;
+  padding: 12px;
+  margin-bottom: 8px;
+  background: #f5f7ff;
+  border-radius: 10px;
+  text-align: left;
 }
 
-li input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  cursor: pointer;
+li input { width: 18px; height: 18px; cursor: pointer; }
+li .texte { flex: 1; }
+li.fait .texte { text-decoration: line-through; opacity: 0.5; }
+
+.tag {
+  color: #fff;
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border-radius: 20px;
 }
 
 li button {
-  margin-left: auto;
   background: transparent;
+  border: none;
   color: red;
   font-size: 1rem;
   padding: 4px 8px;
+  cursor: pointer;
+  border-radius: 6px;
 }
 
-li button:hover {
-  background: #ffeaea;
-}
+li button:hover { background: #ffeaea; }
+
+.vide { color: #6b7280; }
 
 footer {
   margin-top: 30px;
+  color: #fff;
   opacity: 0.8;
   font-size: 0.9rem;
 }
