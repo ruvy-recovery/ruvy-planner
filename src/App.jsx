@@ -18,6 +18,11 @@ const SLOTS = [
 
 const STEPS = ["Profil", "Ta semaine", "Objectifs", "Préférences", "Résultat"];
 
+const COLORS = [
+  { bg: "#f2f8f4", border: "#14532d", text: "#14532d" },
+  { bg: "#eff6ff", border: "#1d4ed8", text: "#1d4ed8" },
+];
+
 const CATEGORIES = [
   { name: "Combat", words: ["mma", "boxe", "jjb", "jiu", "judo", "karaté", "karate", "lutte", "muay", "kick", "grappling"] },
   { name: "Musculation", words: ["muscu", "salle", "crossfit", "force", "gym", "fitness"] },
@@ -155,7 +160,6 @@ export default function App() {
     setPeople(couple ? [emptyPerson("Toi"), emptyPerson("Partenaire")] : [emptyPerson("Toi")]);
   };
 
-  const planOf = (i) => result?.plans?.[i];
   const groups = groupFixed(person.fixed);
 
   return (
@@ -197,7 +201,7 @@ export default function App() {
             </button>
             <button className={couple ? "choice on" : "choice"} onClick={() => toggleCouple(true)}>
               <strong>En couple</strong>
-              <span>Deux plannings et créneaux communs</span>
+              <span>Un planning commun avec créneaux partagés</span>
             </button>
           </div>
 
@@ -390,45 +394,95 @@ export default function App() {
       {/* ---------- ÉTAPE 5 : RÉSULTAT ---------- */}
       {step === 4 && result && (
         <section className="card">
+          <h2>{couple ? "Votre planning" : `Planning de ${result.plans[0].name}`}</h2>
+
           {couple && (
-            <div className="tabs no-print">
+            <div className="legend">
               {result.plans.map((p, i) => (
-                <button key={i} className={i === active ? "tab on" : "tab"} onClick={() => setActive(i)}>
+                <span key={i} className="legend-item">
+                  <span className="dot" style={{ background: COLORS[i].border }} />
                   {p.name}
-                </button>
+                </span>
               ))}
+              <span className="legend-item">
+                <span className="dot" style={{ background: "#7c3aed" }} />
+                Ensemble
+              </span>
             </div>
           )}
 
-          {planOf(active) && (
-            <>
-              <h2>Planning de {planOf(active).name}</h2>
-              <p className="hint">
-                {planOf(active).sessionsAdded} séance(s) ajoutée(s) sur {planOf(active).sessionsTarget} prévue(s).
-                {planOf(active).restDay ? ` Jour de repos : ${planOf(active).restDay}.` : ""}
-              </p>
+          {result.plans.map((p, i) => (
+            <p key={i} className="hint">
+              {p.name} : {p.sessionsAdded} séance(s) ajoutée(s) sur {p.sessionsTarget} prévue(s).
+              {p.restDay ? ` Repos : ${p.restDay}.` : ""}
+            </p>
+          ))}
 
-              <div className="week">
-                {DAYS.map((d) => {
-                  const evs = planOf(active).events.filter((e) => e.day === d);
-                  return (
-                    <div key={d} className="day">
-                      <h3>{d}</h3>
-                      {evs.length === 0 && (
-                        <div className="rest">{planOf(active).restDay === d ? "Repos" : "Libre"}</div>
-                      )}
-                      {evs.map((e, i) => (
-                        <div key={i} className={e.fixed ? "event fixed" : "event added"}>
-                          <strong>{e.title}</strong>
-                          <span>{e.start} – {e.end}</span>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
+          <div className="week">
+            {DAYS.map((d) => {
+              const items = [];
+              result.plans.forEach((p, pi) => {
+                p.events
+                  .filter((e) => e.day === d)
+                  .forEach((e) => items.push({ ...e, owner: pi, ownerName: p.name }));
+              });
+
+              // Fusionne les séances identiques de chaque personne en "Ensemble"
+              const merged = [];
+              const used = new Set();
+              items.forEach((a, ai) => {
+                if (used.has(ai)) return;
+                const bi = couple
+                  ? items.findIndex(
+                      (b, j) =>
+                        j > ai &&
+                        !used.has(j) &&
+                        b.owner !== a.owner &&
+                        b.title.toLowerCase() === a.title.toLowerCase() &&
+                        b.start === a.start &&
+                        b.end === a.end
+                    )
+                  : -1;
+                if (bi >= 0) {
+                  used.add(bi);
+                  merged.push({ ...a, together: true });
+                } else {
+                  merged.push(a);
+                }
+                used.add(ai);
+              });
+              merged.sort((x, y) => x.start.localeCompare(y.start));
+
+              return (
+                <div key={d} className="day">
+                  <h3>{d}</h3>
+                  {merged.length === 0 && <div className="rest">Libre</div>}
+                  {merged.map((e, i) => {
+                    const c = e.together
+                      ? { bg: "#f5f0ff", border: "#7c3aed" }
+                      : COLORS[e.owner];
+                    return (
+                      <div
+                        key={i}
+                        className="event"
+                        style={{
+                          background: c.bg,
+                          borderLeft: `3px solid ${c.border}`,
+                          opacity: e.fixed ? 0.85 : 1,
+                        }}
+                      >
+                        <strong>{e.title}</strong>
+                        <span>{e.start} – {e.end}</span>
+                        {couple && (
+                          <span className="owner">{e.together ? "Ensemble" : e.ownerName}</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
 
           {couple && result.commonSlots?.length > 0 && (
             <div className="common">
@@ -524,9 +578,11 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .day h3 { font-size: 13px; margin: 0 0 8px; color: #151515; font-weight: 600; }
 .rest { font-size: 12px; color: #b0b0b0; }
 .event { padding: 8px; border-radius: 8px; margin-bottom: 6px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
-.event.fixed { background: #f3f3f1; color: #151515; }
-.event.added { background: #f2f8f4; border: 1px solid #14532d; color: #151515; }
 .event span { color: #6b6b6b; }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; margin: 0 0 14px; }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #444; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.owner { font-size: 11px; font-weight: 600; }
 .common { margin-top: 32px; }
 @media (max-width: 560px) { .card { padding: 22px; } .progress-labels { font-size: 11px; } }
 @media print {
