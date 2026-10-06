@@ -14,10 +14,15 @@ const jourActuel = JOURS[(new Date().getDay() + 6) % 7];
 
 function charger(cle, defaut) {
   try {
-    return JSON.parse(localStorage.getItem(cle)) ?? defaut;
+    const valeur = JSON.parse(localStorage.getItem(cle));
+    return Array.isArray(valeur) ? valeur : defaut;
   } catch {
     return defaut;
   }
+}
+
+function nouvelId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
 function App() {
@@ -49,12 +54,12 @@ function App() {
 
   const ajouter = (e) => {
     e.preventDefault();
-    if (!nom.trim()) return setErreur("Donne un nom à l'activité.");
+    if (!nom.trim()) return setErreur("Écris le nom de l'activité.");
     if (jours.length === 0) return setErreur("Choisis au moins un jour.");
-    if (fin <= debut) return setErreur("L'heure de fin doit être après l'heure de début.");
+    if (fin <= debut) return setErreur("L'heure de fin doit être après le début.");
 
     const nouvelles = jours.map((jour) => ({
-      id: crypto.randomUUID(),
+      id: nouvelId(),
       nom: nom.trim(),
       jour,
       debut,
@@ -62,166 +67,137 @@ function App() {
       categorie,
       frequence,
     }));
+
     setActivites([...activites, ...nouvelles]);
     setNom("");
     setJours([]);
     setErreur("");
   };
 
+  const supprimer = (id) => {
+    setActivites(activites.filter((a) => a.id !== id));
+  };
+
   const ajouterCategorie = () => {
     if (!nouvelleCat.trim()) return;
-    const id = Date.now().toString();
+    const id = nouvelId();
     setCategories([...categories, { id, label: nouvelleCat.trim(), couleur: couleurCat }]);
     setCategorie(id);
     setNouvelleCat("");
   };
 
-  const supprimer = (id) => setActivites(activites.filter((a) => a.id !== id));
+  const couleurDe = (id) => categories.find((c) => c.id === id)?.couleur ?? "#6b7280";
 
-  const infosCat = (id) =>
-    categories.find((c) => c.id === id) || { label: "?", couleur: "#9ca3af" };
-
-  // Regroupe les activités d'un jour par créneau horaire (pour couper A / B)
   const creneauxDuJour = (jour) => {
     const liste = activites
       .filter((a) => a.jour === jour)
       .sort((a, b) => a.debut.localeCompare(b.debut));
+
     const groupes = {};
     liste.forEach((a) => {
       const cle = a.debut + "-" + a.fin;
-      if (!groupes[cle]) groupes[cle] = [];
-      groupes[cle].push(a);
+      if (!groupes[cle]) groupes[cle] = { debut: a.debut, fin: a.fin, items: [] };
+      groupes[cle].items.push(a);
     });
     return Object.values(groupes);
-  };
-
-  const renderCarte = (a) => {
-    const c = infosCat(a.categorie);
-    return (
-      <div key={a.id} className="carte" style={{ background: c.couleur }}>
-        {a.frequence !== "toutes" && <span className="badge-ab">{a.frequence}</span>}
-        <span className="carte-nom">{a.nom}</span>
-        <button className="suppr" onClick={() => supprimer(a.id)} title="Supprimer">
-          ×
-        </button>
-      </div>
-    );
   };
 
   return (
     <div className="app">
       <header className="no-print">
-        <h1>Planificateur Ruvy</h1>
-        <p className="sous-titre">Organise ta semaine, un créneau à la fois</p>
+        <h1>Ruvy Planner</h1>
+        <p className="sous-titre">Ton planning de la semaine</p>
       </header>
 
-      {/* ---------- FORMULAIRE ---------- */}
-      <form className="carte-blanche formulaire no-print" onSubmit={ajouter}>
+      {/* ---------- Formulaire ---------- */}
+      <div className="carte-blanche no-print">
         <h2>Ajouter une activité</h2>
 
-        <label className="champ">
-          <span>Activité</span>
-          <input
-            type="text"
-            placeholder="Ex : MMA, Salsa, Travail…"
-            value={nom}
-            onChange={(e) => setNom(e.target.value)}
-          />
-        </label>
-
-        <div className="champ">
-          <span>Jours</span>
-          <div className="puces">
-            {JOURS.map((j) => (
-              <button
-                type="button"
-                key={j}
-                className={"puce" + (jours.includes(j) ? " active" : "")}
-                onClick={() => toggleJour(j)}
-              >
-                {j.slice(0, 3)}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="ligne">
-          <label className="champ">
-            <span>Début</span>
-            <input type="time" value={debut} onChange={(e) => setDebut(e.target.value)} />
-          </label>
-          <label className="champ">
-            <span>Fin</span>
-            <input type="time" value={fin} onChange={(e) => setFin(e.target.value)} />
-          </label>
-        </div>
-
-        <div className="champ">
-          <span>Fréquence</span>
-          <div className="puces">
-            {[
-              { id: "toutes", label: "Chaque semaine" },
-              { id: "A", label: "Semaine A" },
-              { id: "B", label: "Semaine B" },
-            ].map((f) => (
-              <button
-                type="button"
-                key={f.id}
-                className={"puce" + (frequence === f.id ? " active" : "")}
-                onClick={() => setFrequence(f.id)}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="champ">
-          <span>Catégorie</span>
-          <div className="puces">
-            {categories.map((c) => (
-              <button
-                type="button"
-                key={c.id}
-                className={"puce" + (categorie === c.id ? " active" : "")}
-                style={categorie === c.id ? { background: c.couleur, borderColor: c.couleur } : {}}
-                onClick={() => setCategorie(c.id)}
-              >
-                <span className="pastille" style={{ background: c.couleur }} />
-                {c.label}
-              </button>
-            ))}
-          </div>
-          <div className="nouvelle-cat">
+        <form onSubmit={ajouter} className="formulaire">
+          <label>
+            Activité
             <input
               type="text"
-              placeholder="Nouvelle catégorie…"
+              placeholder="Ex : MMA, Salsa, Travail..."
+              value={nom}
+              onChange={(e) => setNom(e.target.value)}
+            />
+          </label>
+
+          <div>
+            <span className="label">Jours</span>
+            <div className="jours">
+              {JOURS.map((j) => (
+                <button
+                  type="button"
+                  key={j}
+                  className={jours.includes(j) ? "jour-btn actif" : "jour-btn"}
+                  onClick={() => toggleJour(j)}
+                >
+                  {j.slice(0, 3)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="ligne">
+            <label>
+              Début
+              <input type="time" value={debut} onChange={(e) => setDebut(e.target.value)} />
+            </label>
+            <label>
+              Fin
+              <input type="time" value={fin} onChange={(e) => setFin(e.target.value)} />
+            </label>
+            <label>
+              Fréquence
+              <select value={frequence} onChange={(e) => setFrequence(e.target.value)}>
+                <option value="toutes">Toutes les semaines</option>
+                <option value="A">Semaine A</option>
+                <option value="B">Semaine B</option>
+              </select>
+            </label>
+            <label>
+              Catégorie
+              <select value={categorie} onChange={(e) => setCategorie(e.target.value)}>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {erreur && <p className="erreur">{erreur}</p>}
+
+          <button type="submit" className="btn-principal">
+            Ajouter au planning
+          </button>
+        </form>
+
+        <div className="nouvelle-cat">
+          <span className="label">Créer une catégorie</span>
+          <div className="ligne">
+            <input
+              type="text"
+              placeholder="Ex : Danse"
               value={nouvelleCat}
               onChange={(e) => setNouvelleCat(e.target.value)}
             />
-            <input
-              type="color"
-              value={couleurCat}
-              onChange={(e) => setCouleurCat(e.target.value)}
-            />
+            <input type="color" value={couleurCat} onChange={(e) => setCouleurCat(e.target.value)} />
             <button type="button" className="btn-secondaire" onClick={ajouterCategorie}>
               + Créer
             </button>
           </div>
         </div>
+      </div>
 
-        {erreur && <p className="erreur">{erreur}</p>}
-
-        <button type="submit" className="btn-principal">
-          Ajouter au planning
-        </button>
-      </form>
-
-      {/* ---------- PLANNING SEMAINE ---------- */}
-      <section className="carte-blanche planning">
-        <div className="planning-entete">
+      {/* ---------- Planning ---------- */}
+      <div className="carte-blanche">
+        <div className="entete-planning">
           <h2>Mon planning</h2>
-          <button className="btn-secondaire no-print" onClick={() => window.print()}>
+          <button className="btn-principal no-print" onClick={() => window.print()}>
             🖨️ Imprimer
           </button>
         </div>
@@ -230,15 +206,25 @@ function App() {
           {JOURS.map((jour) => {
             const creneaux = creneauxDuJour(jour);
             return (
-              <div key={jour} className={"colonne" + (jour === jourActuel ? " aujourdhui" : "")}>
+              <div key={jour} className={jour === jourActuel ? "colonne aujourdhui" : "colonne"}>
                 <h3>{jour}</h3>
                 {creneaux.length === 0 && <p className="vide">—</p>}
-                {creneaux.map((groupe) => (
-                  <div key={groupe[0].debut + groupe[0].fin} className="creneau">
+                {creneaux.map((c) => (
+                  <div key={c.debut + c.fin} className="creneau">
                     <div className="heure">
-                      {groupe[0].debut} – {groupe[0].fin}
+                      {c.debut} – {c.fin}
                     </div>
-                    <div className="cartes">{groupe.map(renderCarte)}</div>
+                    <div className="cartes">
+                      {c.items.map((a) => (
+                        <div key={a.id} className="carte" style={{ background: couleurDe(a.categorie) }}>
+                          {a.frequence !== "toutes" && <span className="badge-ab">{a.frequence}</span>}
+                          {a.nom}
+                          <button className="suppr" onClick={() => supprimer(a.id)}>
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -246,18 +232,17 @@ function App() {
           })}
         </div>
 
-        {categories.length > 0 && (
-          <div className="legende">
-            {categories.map((c) => (
-              <span key={c.id}>
-                <span className="pastille" style={{ background: c.couleur }} /> {c.label}
-              </span>
-            ))}
-          </div>
-        )}
-      </section>
+        <div className="legende">
+          {categories.map((c) => (
+            <span key={c.id}>
+              <span className="pastille" style={{ background: c.couleur }}></span>
+              {c.label}
+            </span>
+          ))}
+        </div>
+      </div>
 
-      <footer className="no-print">© 2026 Ruvy Planner</footer>
+      <footer className="no-print">Ruvy Recovery</footer>
     </div>
   );
 }
