@@ -1,250 +1,354 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import "./App.css";
 
 const JOURS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
+const ETAPES = ["Ta semaine", "Ton profil", "Ton planning"];
 
-const CATS_DEFAUT = [
-  { id: "sport", label: "Sport", couleur: "#10b981" },
-  { id: "travail", label: "Travail", couleur: "#3b82f6" },
-  { id: "etudes", label: "Études", couleur: "#f59e0b" },
-  { id: "perso", label: "Perso", couleur: "#8b5cf6" },
-];
+const COULEURS = {
+  Travail: "#3b82f6",
+  École: "#f59e0b",
+  Sport: "#10b981",
+  Santé: "#ef4444",
+  Perso: "#8b5cf6",
+};
 
-const jourActuel = JOURS[(new Date().getDay() + 6) % 7];
+const nouvelId = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
 
-function charger(cle, defaut) {
-  try {
-    const valeur = JSON.parse(localStorage.getItem(cle));
-    return Array.isArray(valeur) ? valeur : defaut;
-  } catch {
-    return defaut;
-  }
-}
+export default function App() {
+  const [etape, setEtape] = useState(0);
 
-function nouvelId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2);
-}
-
-function App() {
-  const [activites, setActivites] = useState(() => charger("ruvy-activites", []));
-  const [categories, setCategories] = useState(() => charger("ruvy-categories", CATS_DEFAUT));
-
+  // Étape 1 : activités déjà dans la semaine
+  const [existantes, setExistantes] = useState([]);
   const [nom, setNom] = useState("");
   const [jours, setJours] = useState([]);
   const [debut, setDebut] = useState("18:00");
   const [fin, setFin] = useState("19:30");
-  const [categorie, setCategorie] = useState("sport");
-  const [frequence, setFrequence] = useState("toutes");
+  const [semaine, setSemaine] = useState("AB");
   const [erreur, setErreur] = useState("");
 
-  const [nouvelleCat, setNouvelleCat] = useState("");
-  const [couleurCat, setCouleurCat] = useState("#ec4899");
+  // Étape 2 : profil + ce qu'il veut ajouter
+  const [ajouts, setAjouts] = useState([]);
+  const [nomAjout, setNomAjout] = useState("");
+  const [anciennete, setAnciennete] = useState("");
+  const [niveau, setNiveau] = useState("debutant");
+  const [objectif, setObjectif] = useState("");
+  const [heureDebut, setHeureDebut] = useState("07:00");
 
-  useEffect(() => {
-    localStorage.setItem("ruvy-activites", JSON.stringify(activites));
-  }, [activites]);
+  // Résultat
+  const [resultat, setResultat] = useState(null);
+  const [chargement, setChargement] = useState(false);
+  const [erreurApi, setErreurApi] = useState("");
 
-  useEffect(() => {
-    localStorage.setItem("ruvy-categories", JSON.stringify(categories));
-  }, [categories]);
-
-  const toggleJour = (j) => {
+  const toggleJour = (j) =>
     setJours(jours.includes(j) ? jours.filter((x) => x !== j) : [...jours, j]);
-  };
 
-  const ajouter = (e) => {
+  const ajouterExistante = (e) => {
     e.preventDefault();
     if (!nom.trim()) return setErreur("Écris le nom de l'activité.");
     if (jours.length === 0) return setErreur("Choisis au moins un jour.");
     if (fin <= debut) return setErreur("L'heure de fin doit être après le début.");
-
     const nouvelles = jours.map((jour) => ({
       id: nouvelId(),
       nom: nom.trim(),
       jour,
       debut,
       fin,
-      categorie,
-      frequence,
+      semaine,
     }));
-
-    setActivites([...activites, ...nouvelles]);
+    setExistantes([...existantes, ...nouvelles]);
     setNom("");
     setJours([]);
     setErreur("");
   };
 
-  const supprimer = (id) => {
-    setActivites(activites.filter((a) => a.id !== id));
+  const ajouterAjout = () => {
+    if (!nomAjout.trim()) return;
+    setAjouts([...ajouts, { id: nouvelId(), nom: nomAjout.trim() }]);
+    setNomAjout("");
   };
 
-  const ajouterCategorie = () => {
-    if (!nouvelleCat.trim()) return;
-    const id = nouvelId();
-    setCategories([...categories, { id, label: nouvelleCat.trim(), couleur: couleurCat }]);
-    setCategorie(id);
-    setNouvelleCat("");
+  const generer = async () => {
+    setChargement(true);
+    setErreurApi("");
+    try {
+      const rep = await fetch("/api/plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          existantes,
+          ajouts,
+          limites: { debut: heureDebut },
+          profil: { anciennete, niveau, objectif },
+        }),
+      });
+      if (!rep.ok) throw new Error("Erreur serveur");
+      const data = await rep.json();
+      setResultat(data);
+      setEtape(2);
+    } catch {
+      setErreurApi("Impossible de générer le planning. Réessaie dans un instant.");
+    } finally {
+      setChargement(false);
+    }
   };
 
-  const couleurDe = (id) => categories.find((c) => c.id === id)?.couleur ?? "#6b7280";
+  const recommencer = () => {
+    setResultat(null);
+    setEtape(0);
+  };
 
-  const creneauxDuJour = (jour) => {
-    const liste = activites
+  const activitesDuJour = (jour) =>
+    (resultat?.activites || [])
       .filter((a) => a.jour === jour)
       .sort((a, b) => a.debut.localeCompare(b.debut));
-
-    const groupes = {};
-    liste.forEach((a) => {
-      const cle = a.debut + "-" + a.fin;
-      if (!groupes[cle]) groupes[cle] = { debut: a.debut, fin: a.fin, items: [] };
-      groupes[cle].items.push(a);
-    });
-    return Object.values(groupes);
-  };
 
   return (
     <div className="app">
       <header className="no-print">
-        <h1>Ruvy Planner</h1>
-        <p className="sous-titre">Ton planning de la semaine</p>
+        <h1>RUVY Planner</h1>
+        <p className="sous-titre">Ton planning de la semaine, organisé pour toi</p>
+
+        <div className="progression">
+          <div className="barre">
+            <div className="barre-remplie" style={{ width: `${((etape + 1) / ETAPES.length) * 100}%` }} />
+          </div>
+          <div className="etapes-noms">
+            {ETAPES.map((e, i) => (
+              <span key={e} className={i <= etape ? "actif" : ""}>
+                {i + 1}. {e}
+              </span>
+            ))}
+          </div>
+        </div>
       </header>
 
-      {/* ---------- Formulaire ---------- */}
-      <div className="carte-blanche no-print">
-        <h2>Ajouter une activité</h2>
+      {/* ---------- ÉTAPE 1 ---------- */}
+      {etape === 0 && (
+        <div className="carte-blanche no-print">
+          <h2>Qu'y a-t-il déjà dans ta semaine ?</h2>
+          <p className="aide">Travail, études, sport, rendez-vous… Ajoute tout ce qui est fixe.</p>
 
-        <form onSubmit={ajouter} className="formulaire">
-          <label>
-            Activité
-            <input
-              type="text"
-              placeholder="Ex : MMA, Salsa, Travail..."
-              value={nom}
-              onChange={(e) => setNom(e.target.value)}
-            />
-          </label>
+          <form onSubmit={ajouterExistante} className="formulaire">
+            <label>
+              Activité
+              <input
+                type="text"
+                placeholder="Ex : Travail, Cours, JJB…"
+                value={nom}
+                onChange={(e) => setNom(e.target.value)}
+              />
+            </label>
 
-          <div>
-            <span className="label">Jours</span>
-            <div className="jours">
-              {JOURS.map((j) => (
-                <button
-                  type="button"
-                  key={j}
-                  className={jours.includes(j) ? "jour-btn actif" : "jour-btn"}
-                  onClick={() => toggleJour(j)}
-                >
-                  {j.slice(0, 3)}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="ligne">
-            <label>
-              Début
-              <input type="time" value={debut} onChange={(e) => setDebut(e.target.value)} />
-            </label>
-            <label>
-              Fin
-              <input type="time" value={fin} onChange={(e) => setFin(e.target.value)} />
-            </label>
-            <label>
-              Fréquence
-              <select value={frequence} onChange={(e) => setFrequence(e.target.value)}>
-                <option value="toutes">Toutes les semaines</option>
-                <option value="A">Semaine A</option>
-                <option value="B">Semaine B</option>
-              </select>
-            </label>
-            <label>
-              Catégorie
-              <select value={categorie} onChange={(e) => setCategorie(e.target.value)}>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.label}
-                  </option>
+            <div>
+              <span className="label">Jours</span>
+              <div className="jours">
+                {JOURS.map((j) => (
+                  <button
+                    type="button"
+                    key={j}
+                    className={jours.includes(j) ? "jour-btn actif" : "jour-btn"}
+                    onClick={() => toggleJour(j)}
+                  >
+                    {j.slice(0, 3)}
+                  </button>
                 ))}
-              </select>
-            </label>
-          </div>
+              </div>
+            </div>
 
-          {erreur && <p className="erreur">{erreur}</p>}
+            <div className="ligne">
+              <label>
+                Début
+                <input type="time" value={debut} onChange={(e) => setDebut(e.target.value)} />
+              </label>
+              <label>
+                Fin
+                <input type="time" value={fin} onChange={(e) => setFin(e.target.value)} />
+              </label>
+              <label>
+                Semaines
+                <select value={semaine} onChange={(e) => setSemaine(e.target.value)}>
+                  <option value="AB">Toutes</option>
+                  <option value="A">Semaine A</option>
+                  <option value="B">Semaine B</option>
+                </select>
+              </label>
+            </div>
 
-          <button type="submit" className="btn-principal">
-            Ajouter au planning
-          </button>
-        </form>
+            {erreur && <p className="erreur">{erreur}</p>}
 
-        <div className="nouvelle-cat">
-          <span className="label">Créer une catégorie</span>
-          <div className="ligne">
-            <input
-              type="text"
-              placeholder="Ex : Danse"
-              value={nouvelleCat}
-              onChange={(e) => setNouvelleCat(e.target.value)}
-            />
-            <input type="color" value={couleurCat} onChange={(e) => setCouleurCat(e.target.value)} />
-            <button type="button" className="btn-secondaire" onClick={ajouterCategorie}>
-              + Créer
+            <button type="submit" className="btn-secondaire">
+              + Ajouter
+            </button>
+          </form>
+
+          {existantes.length > 0 && (
+            <ul className="liste">
+              {existantes.map((a) => (
+                <li key={a.id}>
+                  <span>
+                    <strong>{a.nom}</strong> · {a.jour} · {a.debut}–{a.fin}
+                    {a.semaine !== "AB" && ` · Sem. ${a.semaine}`}
+                  </span>
+                  <button
+                    className="suppr"
+                    onClick={() => setExistantes(existantes.filter((x) => x.id !== a.id))}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="navigation">
+            <span />
+            <button className="btn-principal" onClick={() => setEtape(1)}>
+              Suivant →
             </button>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* ---------- Planning ---------- */}
-      <div className="carte-blanche">
-        <div className="entete-planning">
-          <h2>Mon planning</h2>
-          <button className="btn-principal no-print" onClick={() => window.print()}>
-            🖨️ Imprimer
-          </button>
-        </div>
+      {/* ---------- ÉTAPE 2 ---------- */}
+      {etape === 1 && (
+        <div className="carte-blanche no-print">
+          <h2>Parle-nous de toi</h2>
 
-        <div className="semaine">
-          {JOURS.map((jour) => {
-            const creneaux = creneauxDuJour(jour);
-            return (
-              <div key={jour} className={jour === jourActuel ? "colonne aujourdhui" : "colonne"}>
-                <h3>{jour}</h3>
-                {creneaux.length === 0 && <p className="vide">—</p>}
-                {creneaux.map((c) => (
-                  <div key={c.debut + c.fin} className="creneau">
-                    <div className="heure">
-                      {c.debut} – {c.fin}
-                    </div>
-                    <div className="cartes">
-                      {c.items.map((a) => (
-                        <div key={a.id} className="carte" style={{ background: couleurDe(a.categorie) }}>
-                          {a.frequence !== "toutes" && <span className="badge-ab">{a.frequence}</span>}
-                          {a.nom}
-                          <button className="suppr" onClick={() => supprimer(a.id)}>
-                            ×
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
+          <div className="formulaire">
+            <label>
+              Depuis combien de temps fais-tu du sport ?
+              <input
+                type="text"
+                placeholder="Ex : 2 ans, quelques mois…"
+                value={anciennete}
+                onChange={(e) => setAnciennete(e.target.value)}
+              />
+            </label>
+
+            <label>
+              Ton niveau
+              <select value={niveau} onChange={(e) => setNiveau(e.target.value)}>
+                <option value="debutant">Débutant</option>
+                <option value="intermediaire">Intermédiaire</option>
+                <option value="avance">Avancé</option>
+              </select>
+            </label>
+
+            <label>
+              Ton objectif
+              <input
+                type="text"
+                placeholder="Ex : perdre du poids, progresser en JJB…"
+                value={objectif}
+                onChange={(e) => setObjectif(e.target.value)}
+              />
+            </label>
+
+            <label>
+              Heure à partir de laquelle tu peux t'entraîner
+              <input type="time" value={heureDebut} onChange={(e) => setHeureDebut(e.target.value)} />
+            </label>
+
+            <div>
+              <span className="label">Qu'est-ce que tu veux ajouter à ta semaine ?</span>
+              <div className="ligne">
+                <input
+                  type="text"
+                  placeholder="Ex : Musculation, Running, Yoga…"
+                  value={nomAjout}
+                  onChange={(e) => setNomAjout(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), ajouterAjout())}
+                />
+                <button type="button" className="btn-secondaire" onClick={ajouterAjout}>
+                  + Ajouter
+                </button>
               </div>
-            );
-          })}
-        </div>
+            </div>
 
-        <div className="legende">
-          {categories.map((c) => (
-            <span key={c.id}>
-              <span className="pastille" style={{ background: c.couleur }}></span>
-              {c.label}
-            </span>
-          ))}
-        </div>
-      </div>
+            {ajouts.length > 0 && (
+              <ul className="liste">
+                {ajouts.map((a) => (
+                  <li key={a.id}>
+                    <strong>{a.nom}</strong>
+                    <button className="suppr" onClick={() => setAjouts(ajouts.filter((x) => x.id !== a.id))}>
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
 
-      <footer className="no-print">Ruvy Recovery</footer>
+          {erreurApi && <p className="erreur">{erreurApi}</p>}
+
+          <div className="navigation">
+            <button className="btn-secondaire" onClick={() => setEtape(0)}>
+              ← Retour
+            </button>
+            <button className="btn-principal" onClick={generer} disabled={chargement}>
+              {chargement ? "Génération…" : "Générer mon planning"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ---------- ÉTAPE 3 : RÉSULTAT ---------- */}
+      {etape === 2 && resultat && (
+        <div className="carte-blanche">
+          <div className="entete-planning">
+            <h2>Ton planning</h2>
+            <div className="no-print actions">
+              <button className="btn-secondaire" onClick={() => setEtape(1)}>
+                Modifier
+              </button>
+              <button className="btn-secondaire" onClick={recommencer}>
+                Recommencer
+              </button>
+              <button className="btn-principal" onClick={() => window.print()}>
+                Imprimer
+              </button>
+            </div>
+          </div>
+
+          {resultat.conseil && <p className="conseil">{resultat.conseil}</p>}
+
+          <div className="semaine">
+            {JOURS.map((jour) => {
+              const liste = activitesDuJour(jour);
+              return (
+                <div key={jour} className="colonne">
+                  <h3>{jour}</h3>
+                  {liste.length === 0 && <p className="vide">Repos</p>}
+                  {liste.map((a, i) => (
+                    <div
+                      key={i}
+                      className={a.nouvelle ? "carte nouvelle" : "carte"}
+                      style={{ background: COULEURS[a.categorie] || "#6b7280" }}
+                    >
+                      <div className="heure">
+                        {a.debut} – {a.fin}
+                      </div>
+                      {a.nom}
+                      {a.semaine !== "AB" && <span className="badge-ab">{a.semaine}</span>}
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="legende">
+            {Object.entries(COULEURS).map(([nomCat, couleur]) => (
+              <span key={nomCat}>
+                <span className="pastille" style={{ background: couleur }} />
+                {nomCat}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <footer className="no-print">RUVY Recovery</footer>
     </div>
   );
 }
-
-export default App;
