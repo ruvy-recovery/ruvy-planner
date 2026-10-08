@@ -1,6 +1,9 @@
 // api/plan.js
-// Génère le planning : activités prioritaires (fixes) + séances ajoutées selon le niveau.
-// Mode solo et mode couple (séances communes + créneaux libres partagés).
+// Étape 1 : l'algorithme calcule tous les créneaux libres (aucun conflit possible).
+// Étape 2 : Claude choisit quels créneaux utiliser et quelle activité y mettre.
+// Si l'IA échoue, l'algorithme de secours prend le relais.
+
+import Anthropic from "@anthropic-ai/sdk";
 
 const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
 
@@ -16,6 +19,8 @@ const LEVELS = {
   avance: { sessions: 4, duration: 75 },
 };
 
+const MODEL = "claude-sonnet-4-5";
+
 const toMin = (hhmm) => {
   const [h, m] = String(hhmm).split(":").map(Number);
   return h * 60 + (m || 0);
@@ -30,7 +35,8 @@ const toHHMM = (min) => {
 const overlaps = (aStart, aEnd, bStart, bEnd, margin = 30) =>
   aStart < bEnd + margin && bStart < aEnd + margin;
 
-// Cherche un créneau libre dans les moments de journée acceptés
+/* ---------- Recherche de créneaux ---------- */
+
 function findSlot(dayBusy, duration, preferredSlots, limits) {
   const earliest = limits.earliest ?? 6 * 60;
   const latest = limits.latest ?? 22 * 60;
@@ -50,7 +56,6 @@ function findSlot(dayBusy, duration, preferredSlots, limits) {
   return null;
 }
 
-// Cherche un créneau libre pour DEUX personnes en même temps
 function findCommonSlot(busyA, busyB, duration, slotsA, slotsB, limitsA, limitsB) {
   const names = slotsA.filter((s) => slotsB.includes(s));
   const earliest = Math.max(limitsA.earliest, limitsB.earliest);
@@ -73,7 +78,8 @@ function findCommonSlot(busyA, busyB, duration, slotsA, slotsB, limitsA, limitsB
   return null;
 }
 
-// Prépare les données d'une personne
+/* ---------- Préparation d'une personne ---------- */
+
 function prepare(person) {
   const {
     name = "Moi",
@@ -121,7 +127,7 @@ function prepare(person) {
 
 const dayLoad = (p, d) => p.busy[d].reduce((sum, b) => sum + (b.end - b.start), 0);
 
-function addEvent(p, day, slot, title) {
+function addEvent(p, day, slot, title, extra = {}) {
   p.busy[day].push({ start: slot.start, end: slot.end });
   p.events.push({
     title,
@@ -129,16 +135,17 @@ function addEvent(p, day, slot, title) {
     start: toHHMM(slot.start),
     end: toHHMM(slot.end),
     fixed: false,
+    ...extra,
   });
   p.added += 1;
   p.usedDays.add(day);
 }
 
-// Place les séances qu'une personne fait seule
+/* ---------- Algorithme de secours (sans IA) ---------- */
+
 function placeSolo(p) {
   const titles = p.wants.length ? p.wants : ["Séance"];
-  let titleIndex = p.added; // continue la rotation
-
+  let titleIndex = p.added;
   const days = [...p.candidateDays].sort((a, b) => dayLoad(p, a) - dayLoad(p, b));
 
   for (const day of days) {
@@ -153,21 +160,16 @@ function placeSolo(p) {
   }
 }
 
-// Place les séances communes (couple)
 function placeTogether(a, b) {
   const duration = Math.max(a.cfg.duration, b.cfg.duration);
-
-  // Activités voulues par les deux (insensible à la casse)
   const wantsB = new Map(b.wants.map((t) => [t.toLowerCase(), t]));
   const shared = a.wants.filter((t) => wantsB.has(t.toLowerCase()));
 
-  // Jours acceptés par les deux
   const commonDays = a.candidateDays.filter((d) => b.candidateDays.includes(d));
   const days = [...commonDays].sort(
     (x, y) => dayLoad(a, x) + dayLoad(b, x) - (dayLoad(a, y) + dayLoad(b, y))
   );
 
-  // Objectif : au moins 1 séance commune, jusqu'à la moitié des séances cibles
   const goal = Math.min(
     Math.max(1, Math.floor(Math.min(a.target, b.target) / 2)),
     a.target - a.added,
@@ -193,19 +195,110 @@ function placeTogether(a, b) {
     if (!slot) continue;
 
     const title = shared.length ? shared[titleIndex % shared.length] : "Séance ensemble";
-    addEvent(a, day, slot, title);
-    addEvent(b, day, slot, title);
+    addEvent(a, day, slot, title, { together: true });
+    addEvent(b, day, slot, title, { together: true });
     titleIndex++;
     placed++;
   }
 }
+
+/* ---------- Choix par l'IA ---------- */
+
+// Liste tous les créneaux possibles pour une personne (un par jour et par moment de la journée)
+function candidateSlots(p) {
+  const list = [];
+  for (const day of p.candidateDays) {
+    for (const slotName of p.slots) {
+      const slot = findSlot(p.busy[day], p.cfg.duration, [slotName], p.limits);
+      if (slot) {
+        list.push({
+          id: list.length,
+          day,
+          moment: slotName,
+          start: toHHMM(slot.start),
+          end: toHHMM(slot.end),
+        });
+      }
+    }
+  }
+  return list;
+}
+
+async function aiChoose(people) {
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+  const payload = people.map((p) => ({
+    nom: p.name,
+    niveau: p.level,
+    seances_a_placer: p.target,
+    activites_voulues: p.wants.length ? p.wants : ["Séance"],
+    activites_fixes_deja_en_place: p.events
+      .filter((e) => e.fixed)
+      .map((e) => `${e.day} ${e.start}-${e.end} ${e.title}`),
+    creneaux_libres: candidateSlots(p),
+  }));
+
+  const prompt = `Tu es un coach sportif. Voici les données de ${people.length} personne(s).
+Pour chaque personne, choisis exactement "seances_a_placer" créneaux parmi "creneaux_libres" (utilise leur "id") et attribue une activité à chacun.
+
+Règles :
+- Maximum 1 séance par jour et par personne.
+- Répartis les séances sur la semaine (évite les jours consécutifs si possible).
+- Alterne les types d'activités (ne mets pas deux séances identiques d'affilée).
+- Évite une séance intense la veille d'une activité fixe lourde.
+- Utilise uniquement les activités de "activites_voulues".
+- Ajoute une courte note utile (10 mots maximum) pour chaque séance.
+
+Réponds UNIQUEMENT avec du JSON valide, sans texte autour, dans ce format :
+{"plans":[{"nom":"...","seances":[{"id":0,"activite":"...","note":"..."}]}]}
+
+Données :
+${JSON.stringify(payload)}`;
+
+  const msg = await client.messages.create({
+    model: MODEL,
+    max_tokens: 1500,
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const text = msg.content.map((c) => c.text || "").join("");
+  const jsonText = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
+  return JSON.parse(jsonText);
+}
+
+// Applique le choix de l'IA après avoir vérifié chaque séance
+function applyAi(people, ai) {
+  people.forEach((p, i) => {
+    const plan = ai.plans?.[i];
+    if (!plan || !Array.isArray(plan.seances)) return;
+
+    const slots = candidateSlots(p);
+
+    for (const s of plan.seances) {
+      if (p.added >= p.target) break;
+      const slot = slots.find((x) => x.id === s.id);
+      if (!slot) continue;
+      if (p.usedDays.has(slot.day)) continue;
+
+      const start = toMin(slot.start);
+      const end = toMin(slot.end);
+      const conflict = p.busy[slot.day].some((b) => overlaps(start, end, b.start, b.end));
+      if (conflict) continue;
+
+      addEvent(p, slot.day, { start, end }, s.activite || "Séance", {
+        note: String(s.note || "").slice(0, 100),
+      });
+    }
+  });
+}
+
+/* ---------- Sortie ---------- */
 
 function finish(p) {
   p.events.sort(
     (x, y) => DAYS.indexOf(x.day) - DAYS.indexOf(y.day) || toMin(x.start) - toMin(y.start)
   );
 
-  // Jour de repos : un jour sans aucun événement (idéalement Dimanche)
   const freeDays = DAYS.filter((d) => !p.events.some((e) => e.day === d));
   const restDay = freeDays.includes("Dimanche") ? "Dimanche" : freeDays[freeDays.length - 1] || null;
 
@@ -219,7 +312,6 @@ function finish(p) {
   };
 }
 
-// Créneaux libres communs (blocs d'au moins 60 min)
 function commonSlots(busyA, busyB) {
   const result = [];
   DAYS.forEach((day) => {
@@ -236,7 +328,9 @@ function commonSlots(busyA, busyB) {
   return result;
 }
 
-export default function handler(req, res) {
+/* ---------- Handler ---------- */
+
+export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Méthode non autorisée" });
   }
@@ -257,11 +351,23 @@ export default function handler(req, res) {
       placeTogether(prepared[0], prepared[1]);
     }
 
-    // 2. Puis le reste, chacun de son côté
+    // 2. Le reste : IA d'abord, algorithme de secours ensuite
+    let usedAi = false;
+    try {
+      if (!process.env.ANTHROPIC_API_KEY) throw new Error("Clé ANTHROPIC_API_KEY absente");
+      const ai = await aiChoose(prepared);
+      applyAi(prepared, ai);
+      usedAi = true;
+    } catch (e) {
+      console.error("IA indisponible, algorithme de secours :", e.message);
+    }
+
+    // Complète avec l'algorithme classique si l'IA n'a pas tout placé
     prepared.forEach(placeSolo);
 
     const response = {
       couple,
+      ai: usedAi,
       plans: prepared.map(finish),
     };
 
@@ -271,6 +377,7 @@ export default function handler(req, res) {
 
     return res.status(200).json(response);
   } catch (err) {
+    console.error(err);
     return res.status(500).json({ error: "Erreur lors de la génération du planning" });
   }
 }
