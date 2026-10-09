@@ -396,6 +396,12 @@ export default function App() {
         <section className="card">
           <h2>{couple ? "Votre planning" : `Planning de ${result.plans[0].name}`}</h2>
 
+          <p className="badge-ia no-print">
+            {result.ai
+              ? "✨ Planning optimisé par l'IA"
+              : "Planning calculé par l'algorithme"}
+          </p>
+
           {couple && (
             <div className="legend">
               {result.plans.map((p, i) => (
@@ -473,6 +479,7 @@ export default function App() {
                       >
                         <strong>{e.title}</strong>
                         <span>{e.start} – {e.end}</span>
+                        {e.note && <span className="note-ia">{e.note}</span>}
                         {couple && (
                           <span className="owner">{e.together ? "Ensemble" : e.ownerName}</span>
                         )}
@@ -583,6 +590,8 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #444; }
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .owner { font-size: 11px; font-weight: 600; }
+.badge-ia { display: inline-block; margin: 0 0 14px; padding: 5px 14px; border-radius: 999px; background: #f3eefe; color: #5b3fd1; font-size: 13px; font-weight: 600; }
+.event span.note-ia { font-size: 11px; font-style: italic; color: #8a8a8a; line-height: 1.35; }
 .common { margin-top: 32px; }
 @media (max-width: 560px) { .card { padding: 22px; } .progress-labels { font-size: 11px; } }
 @media print {
