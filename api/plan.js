@@ -19,7 +19,8 @@ const LEVELS = {
   avance: { sessions: 4, duration: 75 },
 };
 
-const MODEL = "claude-sonnet-5-5";
+// Modifiable depuis Vercel (Environment Variables) sans toucher au code
+const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5-5";
 
 const toMin = (hhmm) => {
   const [h, m] = String(hhmm).split(":").map(Number);
@@ -230,7 +231,7 @@ async function aiChoose(people) {
   const payload = people.map((p) => ({
     nom: p.name,
     niveau: p.level,
-    seances_a_placer: p.target,
+    seances_a_placer: p.target - p.added,
     activites_voulues: p.wants.length ? p.wants : ["Séance"],
     activites_fixes_deja_en_place: p.events
       .filter((e) => e.fixed)
@@ -355,9 +356,14 @@ export default async function handler(req, res) {
     let usedAi = false;
     try {
       if (!process.env.ANTHROPIC_API_KEY) throw new Error("Clé ANTHROPIC_API_KEY absente");
+
+      const before = prepared.reduce((n, p) => n + p.added, 0);
       const ai = await aiChoose(prepared);
       applyAi(prepared, ai);
-      usedAi = true;
+      const after = prepared.reduce((n, p) => n + p.added, 0);
+
+      // true seulement si l'IA a réellement placé au moins une séance
+      usedAi = after > before;
     } catch (e) {
       console.error("IA indisponible, algorithme de secours :", e.message);
     }
