@@ -19,11 +19,11 @@ const LEVELS = {
   avance: { sessions: 4, duration: 75 },
 };
 
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514";
+const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5-5";
 
 const toMin = (hhmm) => {
-  const [h, m] = String(hhmm || "0:0").split(":").map(Number);
-  return (h || 0) * 60 + (m || 0);
+  const [h, m] = String(hhmm).split(":").map(Number);
+  return h * 60 + (m || 0);
 };
 
 const toHHMM = (min) => {
@@ -58,10 +58,8 @@ function findSlot(dayBusy, duration, preferredSlots, limits) {
 
 function findCommonSlot(busyA, busyB, duration, slotsA, slotsB, limitsA, limitsB) {
   const names = slotsA.filter((s) => slotsB.includes(s));
-  if (names.length === 0) return null;
-
-  const earliest = Math.max(limitsA.earliest || 6 * 60, limitsB.earliest || 6 * 60);
-  const latest = Math.min(limitsA.latest || 22 * 60, limitsB.latest || 22 * 60);
+  const earliest = Math.max(limitsA.earliest, limitsB.earliest);
+  const latest = Math.min(limitsA.latest, limitsB.latest);
 
   for (const slotName of names) {
     const slot = SLOTS[slotName];
@@ -100,32 +98,21 @@ function prepare(person) {
   DAYS.forEach((d) => (busy[d] = []));
   const events = [];
 
-  // Ajoute les activités fixes
   fixed.forEach((a) => {
     if (!DAYS.includes(a.day)) return;
-    const s = toMin(a.start);
-    const e = toMin(a.end);
-    busy[a.day].push({ start: s, end: e });
-    events.push({ 
-      title: a.title, 
-      day: a.day, 
-      start: a.start, 
-      end: a.end, 
-      fixed: true 
-    });
+    busy[a.day].push({ start: toMin(a.start), end: toMin(a.end) });
+    events.push({ title: a.title, day: a.day, start: a.start, end: a.end, fixed: true });
   });
 
   // Chaque activité doit être placée exactement N fois (sessions)
-  const activities = wants
-    .filter((w) => w && w.title && w.sessions > 0)
-    .map((w, idx) => ({
-      id: idx,
-      title: w.title,
-      sessions: Math.max(1, w.sessions || 1),
-      slots: w.slots && w.slots.length > 0 ? w.slots : preferredSlots,
-      days: w.days && w.days.length > 0 ? w.days : preferredDays.length > 0 ? preferredDays : DAYS,
-      placed: 0,
-    }));
+  const activities = wants.map((w, idx) => ({
+    id: idx,
+    title: w.title,
+    sessions: w.sessions || 1,
+    slots: w.slots && w.slots.length ? w.slots : preferredSlots,
+    days: w.days && w.days.length ? w.days : preferredDays.length ? preferredDays : DAYS,
+    placed: 0,
+  }));
 
   const globalTarget = activities.reduce((sum, a) => sum + a.sessions, 0);
 
@@ -136,12 +123,9 @@ function prepare(person) {
     busy,
     events,
     activities,
-    preferredDays: preferredDays.length > 0 ? preferredDays : DAYS,
-    preferredSlots: preferredSlots.length > 0 ? preferredSlots : ["soir"],
-    limits: { 
-      earliest: toMin(earliest), 
-      latest: toMin(latest) 
-    },
+    preferredDays: preferredDays.length ? preferredDays : DAYS,
+    preferredSlots: preferredSlots.length ? preferredSlots : ["soir"],
+    limits: { earliest: toMin(earliest), latest: toMin(latest) },
     globalTarget,
     added: 0,
     usedDays: new Set(),
@@ -169,9 +153,7 @@ function addEvent(p, day, slot, activity, extra = {}) {
 
 function possibleSlotsForActivity(p, activity) {
   const list = [];
-  const validDays = activity.days.filter((d) => DAYS.includes(d));
-  
-  for (const day of validDays) {
+  for (const day of activity.days.filter((d) => DAYS.includes(d))) {
     for (const slotName of activity.slots) {
       const slot = findSlot(p.busy[day], p.cfg.duration, [slotName], p.limits);
       if (slot) {
@@ -182,7 +164,6 @@ function possibleSlotsForActivity(p, activity) {
           moment: slotName,
           start: toHHMM(slot.start),
           end: toHHMM(slot.end),
-          title: activity.title,
         });
       }
     }
@@ -212,68 +193,48 @@ async function aiChoose(people) {
     creneaux_libres: p.activities.flatMap((a) => possibleSlotsForActivity(p, a)),
   }));
 
-  const prompt = `Tu es un coach sportif expert en planification. Voici les données de ${people.length} personne(s).
-Pour chaque personne, tu dois placer des séances d'entraînement selon les contraintes de chaque activité.
+  const prompt = `Tu es un coach sportif. Voici les données de ${people.length} personne(s).
+Pour chaque personne, tu dois placer des séances selon les contraintes de chaque activité.
 
-**Règles STRICTES :**
-1. Pour chaque activité, place EXACTEMENT "seances_a_placer" séances (ni plus, ni moins).
-2. Utilise UNIQUEMENT les créneaux de "creneaux_libres" (identifie-les par leur "id").
-3. Chaque créneau ne peut être utilisé qu'une seule fois dans la semaine.
-4. Maximum 1 séance par jour et par personne (pas de chevauchement).
-5. Répartis les séances sur la semaine (évite les jours consécutifs si possible).
-6. Alterne les activités pour ne pas mettre deux séances identiques d'affilée.
+Règles strictes :
+- Pour chaque activité, place exactement "seances_a_placer" séances.
+- Utilise UNIQUEMENT les créneaux de "creneaux_libres" (identifie-les par "id").
+- Chaque créneau ne peut être utilisé qu'une seule fois.
+- Maximum 1 séance par jour et par personne.
+- Répartis sur la semaine, évite les jours consécutifs si possible.
+- Alterne les activités, ne mets pas deux séances identiques d'affilée.
 
-**Format de réponse STRICT :**
-Réponds UNIQUEMENT avec du JSON valide, sans aucun texte avant ou après :
-{"plans":[{"nom":"...","seances":[{"id":0}]}]}
-
-Où "id" est l'identifiant du créneau dans "creneaux_libres".
+Réponds UNIQUEMENT avec du JSON valide, sans texte autour, dans ce format :
+{"plans":[{"nom":"...","seances":[{"id":0,"activite":"..."}]}]}
 
 Données :
 ${JSON.stringify(payload)}`;
 
-  try {
-    const msg = await client.messages.create({
-      model: MODEL,
-      max_tokens: 4000,
-      messages: [{ role: "user", content: prompt }],
-    });
+  const msg = await client.messages.create({
+    model: MODEL,
+    max_tokens: 3000,
+    messages: [{ role: "user", content: prompt }],
+  });
 
-    const text = msg.content.map((c) => c.text || "").join("");
-    const jsonStart = text.indexOf("{");
-    const jsonEnd = text.lastIndexOf("}");
-    
-    if (jsonStart === -1 || jsonEnd === -1) {
-      throw new Error("Pas de JSON trouvé dans la réponse IA");
-    }
-    
-    const jsonText = text.slice(jsonStart, jsonEnd + 1);
-    return JSON.parse(jsonText);
-  } catch (e) {
-    console.error("Erreur lors du parsing IA :", e.message);
-    throw e;
-  }
+  const text = msg.content.map((c) => c.text || "").join("");
+  const jsonText = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
+  return JSON.parse(jsonText);
 }
 
 /* ---------- Validation et application du choix IA ---------- */
 
 function applyAi(people, ai) {
-  if (!ai || !Array.isArray(ai.plans)) return;
-
   people.forEach((p, i) => {
-    const plan = ai.plans[i];
+    const plan = ai.plans?.[i];
     if (!plan || !Array.isArray(plan.seances)) return;
 
     const allSlots = p.activities.flatMap((a) => possibleSlotsForActivity(p, a));
-    const usedSlotIds = new Set();
+    const usedSlots = new Set();
 
     for (const s of plan.seances) {
-      if (usedSlotIds.has(s.id)) continue;
-      
+      if (usedSlots.has(s.id)) continue; // Créneau déjà utilisé
       const slot = allSlots.find((x) => x.id === s.id);
       if (!slot) continue;
-      
-      // Vérifie qu'on ne place pas 2 séances le même jour
       if (p.usedDays.has(slot.day)) continue;
 
       const activity = p.activities[slot.activityId];
@@ -281,13 +242,11 @@ function applyAi(people, ai) {
 
       const start = toMin(slot.start);
       const end = toMin(slot.end);
-      
-      // Double-vérification : pas de conflit
       const conflict = p.busy[slot.day].some((b) => overlaps(start, end, b.start, b.end));
       if (conflict) continue;
 
       addEvent(p, slot.day, { start, end }, activity);
-      usedSlotIds.add(s.id);
+      usedSlots.add(s.id);
     }
   });
 }
@@ -301,8 +260,7 @@ function placeFallback(p) {
   // Collecte tous les créneaux libres
   const allSlots = [];
   for (const activity of activities) {
-    const validDays = activity.days.filter((d) => DAYS.includes(d));
-    for (const day of validDays) {
+    for (const day of activity.days.filter((d) => DAYS.includes(d))) {
       for (const slotName of activity.slots) {
         const slot = findSlot(p.busy[day], p.cfg.duration, [slotName], p.limits);
         if (slot && !p.usedDays.has(day)) {
@@ -317,12 +275,8 @@ function placeFallback(p) {
     }
   }
 
-  // Trie par charge du jour (jours légers en priorité) et par jour de la semaine
-  allSlots.sort((a, b) => {
-    const loadDiff = a.load - b.load;
-    if (loadDiff !== 0) return loadDiff;
-    return DAYS.indexOf(a.day) - DAYS.indexOf(b.day);
-  });
+  // Trie par charge du jour (jours légers en priorité)
+  allSlots.sort((a, b) => a.load - b.load);
 
   // Remplit greedily
   for (const { activity, day, slot } of allSlots) {
@@ -342,15 +296,11 @@ function placeFallback(p) {
 
 function finish(p) {
   p.events.sort(
-    (x, y) => 
-      DAYS.indexOf(x.day) - DAYS.indexOf(y.day) || 
-      toMin(x.start) - toMin(y.start)
+    (x, y) => DAYS.indexOf(x.day) - DAYS.indexOf(y.day) || toMin(x.start) - toMin(y.start)
   );
 
   const freeDays = DAYS.filter((d) => !p.events.some((e) => e.day === d));
-  const restDay = freeDays.includes("Dimanche") 
-    ? "Dimanche" 
-    : freeDays[freeDays.length - 1] || null;
+  const restDay = freeDays.includes("Dimanche") ? "Dimanche" : freeDays[freeDays.length - 1] || null;
 
   return {
     name: p.name,
@@ -364,33 +314,17 @@ function finish(p) {
 
 function commonSlots(busyA, busyB) {
   const result = [];
-  const dayStart = 7 * 60; // 7:00
-  const dayEnd = 22 * 60; // 22:00
-
   DAYS.forEach((day) => {
     const all = [...busyA[day], ...busyB[day]].sort((x, y) => x.start - y.start);
-    let cursor = dayStart;
+    let cursor = 7 * 60;
+    const dayEnd = 22 * 60;
 
     for (const b of all) {
-      if (b.start - cursor >= 60) {
-        result.push({ 
-          day, 
-          start: toHHMM(cursor), 
-          end: toHHMM(b.start) 
-        });
-      }
+      if (b.start - cursor >= 60) result.push({ day, start: toHHMM(cursor), end: toHHMM(b.start) });
       cursor = Math.max(cursor, b.end);
     }
-    
-    if (dayEnd - cursor >= 60) {
-      result.push({ 
-        day, 
-        start: toHHMM(cursor), 
-        end: toHHMM(dayEnd) 
-      });
-    }
+    if (dayEnd - cursor >= 60) result.push({ day, start: toHHMM(cursor), end: toHHMM(dayEnd) });
   });
-  
   return result;
 }
 
@@ -398,22 +332,17 @@ function commonSlots(busyA, busyB) {
 
 function placeTogether(a, b) {
   const duration = Math.max(a.cfg.duration, b.cfg.duration);
-
-  // Cherche les activités partagées (même titre)
+  
+  // Activités partagées
   const wantsB = new Map(b.activities.map((act) => [act.title.toLowerCase(), act]));
   const shared = a.activities.filter((act) => wantsB.has(act.title.toLowerCase()));
 
-  if (shared.length === 0) return; // Aucune activité en commun
-
   const commonDays = a.preferredDays.filter((d) => b.preferredDays.includes(d));
-  if (commonDays.length === 0) return;
-
-  // Trie les jours par charge cumulée (jours moins chargés d'abord)
   const days = [...commonDays].sort(
     (x, y) => dayLoad(a, x) + dayLoad(b, x) - (dayLoad(a, y) + dayLoad(b, y))
   );
 
-  // But : placer au moins 1 séance en commun si possible, max 2
+  // But : placer au moins 1 séance en commun si possible
   let placed = 0;
   const goal = Math.min(
     shared.reduce((sum, act) => sum + act.sessions, 0),
@@ -435,16 +364,17 @@ function placeTogether(a, b) {
     );
     if (!slot) continue;
 
-    // Choisit une activité partagée qui n'a pas atteint son quota
-    const activity = shared.find((act) => act.placed < act.sessions);
-    if (!activity) continue;
-
-    const actB = wantsB.get(activity.title.toLowerCase());
-    if (!actB || actB.placed >= actB.sessions) continue;
-
-    addEvent(a, day, slot, activity, { together: true });
-    addEvent(b, day, slot, actB, { together: true });
-    placed++;
+    if (shared.length > 0) {
+      const activity = shared[placed % shared.length];
+      if (activity.placed < activity.sessions) {
+        const actB = wantsB.get(activity.title.toLowerCase());
+        if (actB && actB.placed < actB.sessions) {
+          addEvent(a, day, slot, activity, { together: true });
+          addEvent(b, day, slot, actB, { together: true });
+          placed++;
+        }
+      }
+    }
   }
 }
 
@@ -464,20 +394,17 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Aucune personne fournie" });
     }
 
-    // Prépare les données des personnes
     const prepared = people.slice(0, couple ? 2 : 1).map(prepare);
 
-    // Étape 1 : Séances communes d'abord (couple uniquement)
+    // 1. Séances communes d'abord (couple uniquement)
     if (couple && prepared.length === 2) {
       placeTogether(prepared[0], prepared[1]);
     }
 
-    // Étape 2 : IA d'abord, puis algorithme fallback
+    // 2. Le reste : IA d'abord, algorithme de secours ensuite
     let usedAi = false;
     try {
-      if (!process.env.ANTHROPIC_API_KEY) {
-        throw new Error("Clé ANTHROPIC_API_KEY absente");
-      }
+      if (!process.env.ANTHROPIC_API_KEY) throw new Error("Clé ANTHROPIC_API_KEY absente");
 
       const before = prepared.reduce((n, p) => n + p.added, 0);
       const ai = await aiChoose(prepared);
@@ -485,13 +412,12 @@ export default async function handler(req, res) {
       const after = prepared.reduce((n, p) => n + p.added, 0);
 
       usedAi = after > before;
-      console.log(`✅ IA : ${after - before} séance(s) placée(s) (modèle ${MODEL})`);
+      console.log(`IA : ${after - before} séance(s) placée(s) (modèle ${MODEL})`);
     } catch (e) {
-      console.error(`⚠️  IA indisponible : ${e.message}`);
-      console.log("   Passage à l'algorithme de secours...");
+      console.error("IA indisponible, algorithme de secours :", e.message);
     }
 
-    // Étape 3 : Complète avec fallback si nécessaire
+    // Complète avec l'algorithme fallback si l'IA n'a pas tout placé
     prepared.forEach(placeFallback);
 
     const response = {
@@ -506,7 +432,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json(response);
   } catch (err) {
-    console.error("❌ Erreur critique :", err.message || err);
+    console.error(err);
     return res.status(500).json({ error: "Erreur lors de la génération du planning" });
   }
 }
