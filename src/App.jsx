@@ -39,7 +39,6 @@ function classify(title) {
   return "Autre";
 }
 
-// Regroupe les activités identiques (même titre + mêmes horaires) sur une seule ligne
 function groupFixed(list) {
   const map = new Map();
   list.forEach((a, index) => {
@@ -93,7 +92,7 @@ export default function App() {
     setPeople(value ? [emptyPerson("Toi"), emptyPerson("Partenaire")] : [emptyPerson("Toi")]);
   };
 
-  // ----- Jours multiples -----
+  // ----- Activités fixes -----
   const toggleDraftDay = (d) =>
     setDraft((prev) => ({
       ...prev,
@@ -113,15 +112,32 @@ export default function App() {
   const removeGroup = (indexes) =>
     update({ fixed: person.fixed.filter((_, i) => !indexes.includes(i)) });
 
+  // ----- Activités à ajouter (avec réglages par activité) -----
   const addWant = () => {
     if (!wantDraft.trim()) return;
-    update({ wants: [...person.wants, { title: wantDraft.trim() }] });
+    update({
+      wants: [
+        ...person.wants,
+        { title: wantDraft.trim(), sessions: 1, slots: ["soir"], days: [] },
+      ],
+    });
     setWantDraft("");
   };
 
   const removeWant = (index) =>
     update({ wants: person.wants.filter((_, i) => i !== index) });
 
+  const updateWant = (index, patch) =>
+    update({ wants: person.wants.map((w, i) => (i === index ? { ...w, ...patch } : w)) });
+
+  const toggleWantIn = (index, key, value) => {
+    const list = person.wants[index][key];
+    updateWant(index, {
+      [key]: list.includes(value) ? list.filter((v) => v !== value) : [...list, value],
+    });
+  };
+
+  // ----- Préférences globales -----
   const toggleIn = (key, value) => {
     const list = person[key];
     update({ [key]: list.includes(value) ? list.filter((v) => v !== value) : [...list, value] });
@@ -304,7 +320,7 @@ export default function App() {
       {step === 2 && (
         <section className="card">
           <h2>Ce que tu veux ajouter</h2>
-          <p className="hint">Les activités que tu aimerais intégrer. L'IA les classe et les place pour toi.</p>
+          <p className="hint">Chaque activité peut avoir ses propres réglages : nombre de séances, moments et jours préférés.</p>
 
           <div className="row">
             <input
@@ -317,18 +333,61 @@ export default function App() {
             <button className="btn" onClick={addWant}>Ajouter</button>
           </div>
 
-          <ul className="list">
+          <div className="wants">
             {person.wants.map((w, i) => (
-              <li key={i}>
-                <div>
-                  <strong>{w.title}</strong>
-                  <span className="tag">{classify(w.title)}</span>
+              <div key={i} className="want-card">
+                <div className="want-head">
+                  <div>
+                    <strong>{w.title}</strong>
+                    <span className="tag">{classify(w.title)}</span>
+                  </div>
+                  <button className="link" onClick={() => removeWant(i)}>Retirer</button>
                 </div>
-                <button className="link" onClick={() => removeWant(i)}>Retirer</button>
-              </li>
+
+                <label className="label">Séances par semaine</label>
+                <div className="chips">
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <button
+                      key={n}
+                      className={w.sessions === n ? "chip on" : "chip"}
+                      onClick={() => updateWant(i, { sessions: n })}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+
+                <label className="label">Moment de la journée</label>
+                <div className="chips">
+                  {SLOTS.map((s) => (
+                    <button
+                      key={s.id}
+                      className={w.slots.includes(s.id) ? "chip on" : "chip"}
+                      onClick={() => toggleWantIn(i, "slots", s.id)}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+
+                <label className="label">Jours possibles <em>(aucun = tous)</em></label>
+                <div className="chips">
+                  {DAYS.map((d) => (
+                    <button
+                      key={d}
+                      className={w.days.includes(d) ? "chip on" : "chip"}
+                      onClick={() => toggleWantIn(i, "days", d)}
+                    >
+                      {SHORT[d]}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ))}
-            {person.wants.length === 0 && <li className="empty">Rien d'ajouté. Tu peux passer à l'étape suivante.</li>}
-          </ul>
+            {person.wants.length === 0 && (
+              <div className="want-empty">Rien d'ajouté. Tu peux passer à l'étape suivante.</div>
+            )}
+          </div>
         </section>
       )}
 
@@ -336,7 +395,7 @@ export default function App() {
       {step === 3 && (
         <section className="card">
           <h2>Quels jours peut-on te proposer des séances ?</h2>
-          <p className="hint">Ne sélectionne rien si tous les jours te conviennent.</p>
+          <p className="hint">Ces réglages s'appliquent à toutes tes activités (sauf si tu en as défini d'autres).</p>
           <div className="chips">
             {DAYS.map((d) => (
               <button
@@ -359,20 +418,6 @@ export default function App() {
                 onClick={() => toggleIn("preferredSlots", s.id)}
               >
                 {s.label}
-              </button>
-            ))}
-          </div>
-
-          <h2>Combien de séances veux-tu ajouter par semaine ?</h2>
-          <p className="hint">En plus des activités que tu fais déjà.</p>
-          <div className="chips">
-            {[1, 2, 3, 4, 5].map((n) => (
-              <button
-                key={n}
-                className={person.maxSessions === n ? "chip on" : "chip"}
-                onClick={() => update({ maxSessions: n })}
-              >
-                {n}
               </button>
             ))}
           </div>
@@ -433,7 +478,6 @@ export default function App() {
                   .forEach((e) => items.push({ ...e, owner: pi, ownerName: p.name }));
               });
 
-              // Fusionne les séances identiques de chaque personne en "Ensemble"
               const merged = [];
               const used = new Set();
               items.forEach((a, ai) => {
@@ -479,7 +523,6 @@ export default function App() {
                       >
                         <strong>{e.title}</strong>
                         <span>{e.start} – {e.end}</span>
-                        {e.note && <span className="note-ia">{e.note}</span>}
                         {couple && (
                           <span className="owner">{e.together ? "Ensemble" : e.ownerName}</span>
                         )}
@@ -574,7 +617,7 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .list small { color: #6b6b6b; font-size: 13px; }
 .list .empty { color: #a3a3a3; font-size: 14px; justify-content: center; border-style: dashed; background: transparent; }
 .tag { display: inline-block; margin-left: 8px; padding: 2px 9px; font-size: 11px; background: #f0f0ed; border-radius: 999px; color: #555; font-weight: 500; }
-.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .chip { padding: 9px 18px; border: 1px solid #e0e0dc; background: #fff; border-radius: 999px; cursor: pointer; font-size: 14px; color: #151515; font-family: inherit; transition: all .15s; }
 .chip:hover { border-color: #b9b9b3; }
 .chip.on { background: #14532d; color: #fff; border-color: #14532d; }
@@ -591,8 +634,12 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .owner { font-size: 11px; font-weight: 600; }
 .badge-ia { display: inline-block; margin: 0 0 14px; padding: 5px 14px; border-radius: 999px; background: #f3eefe; color: #5b3fd1; font-size: 13px; font-weight: 600; }
-.event span.note-ia { font-size: 11px; font-style: italic; color: #8a8a8a; line-height: 1.35; }
 .common { margin-top: 32px; }
+.wants { display: flex; flex-direction: column; gap: 14px; margin-top: 20px; }
+.want-card { border: 1px solid #ececE8; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 10px; background: #fafaf8; }
+.want-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 4px; }
+.want-head div { display: flex; align-items: center; gap: 8px; }
+.want-empty { color: #a3a3a3; font-size: 14px; text-align: center; border: 1px dashed #e0e0dc; border-radius: 12px; padding: 14px; }
 @media (max-width: 560px) { .card { padding: 22px; } .progress-labels { font-size: 11px; } }
 @media print {
   .no-print { display: none !important; }
