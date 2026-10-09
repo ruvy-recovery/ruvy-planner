@@ -19,7 +19,7 @@ const LEVELS = {
   avance: { sessions: 4, duration: 75 },
 };
 
-const MODEL = "claude-sonnet-4-5";
+const MODEL = "claude-sonnet-5-5";
 
 const toMin = (hhmm) => {
   const [h, m] = String(hhmm).split(":").map(Number);
