@@ -1,7 +1,7 @@
 // api/plan.js
-// Étape 1 : l'algorithme calcule tous les créneaux libres (aucun conflit possible).
-// Étape 2 : Claude choisit quels créneaux utiliser et quelle activité y mettre.
-// Si l'IA échoue, l'algorithme de secours prend le relais.
+// Étape 1 : calcule tous les créneaux libres (aucun conflit).
+// Étape 2 : Claude choisit quels créneaux utiliser pour chaque activité.
+// Étape 3 : Si l'IA échoue, l'algorithme de secours (backtracking) prend le relais.
 
 import Anthropic from "@anthropic-ai/sdk";
 
@@ -19,8 +19,6 @@ const LEVELS = {
   avance: { sessions: 4, duration: 75 },
 };
 
-// Modifiable depuis Vercel (Environment Variables) sans toucher au code.
-// Vérifie le nom exact du modèle dans la doc Anthropic (page "Models").
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5-5";
 
 const toMin = (hhmm) => {
@@ -90,7 +88,6 @@ function prepare(person) {
     wants = [],
     preferredDays = [],
     preferredSlots = ["soir"],
-    maxSessions = 7,
     earliest = "06:00",
     latest = "22:00",
   } = person;
@@ -107,9 +104,17 @@ function prepare(person) {
     events.push({ title: a.title, day: a.day, start: a.start, end: a.end, fixed: true });
   });
 
-  const target = Math.max(0, Math.min(cfg.sessions, Number(maxSessions) || 0));
-  const candidateDays = (preferredDays.length ? preferredDays : DAYS).filter((d) => DAYS.includes(d));
-  const slots = preferredSlots.length ? preferredSlots : ["soir"];
+  // Chaque activité doit être placée exactement N fois (sessions)
+  const activities = wants.map((w, idx) => ({
+    id: idx,
+    title: w.title,
+    sessions: w.sessions || 1,
+    slots: w.slots && w.slots.length ? w.slots : preferredSlots,
+    days: w.days && w.days.length ? w.days : preferredDays.length ? preferredDays : DAYS,
+    placed: 0,
+  }));
+
+  const globalTarget = activities.reduce((sum, a) => sum + a.sessions, 0);
 
   return {
     name,
@@ -117,11 +122,11 @@ function prepare(person) {
     cfg,
     busy,
     events,
-    wants: wants.map((w) => w.title).filter(Boolean),
-    candidateDays,
-    slots,
+    activities,
+    preferredDays: preferredDays.length ? preferredDays : DAYS,
+    preferredSlots: preferredSlots.length ? preferredSlots : ["soir"],
     limits: { earliest: toMin(earliest), latest: toMin(latest) },
-    target,
+    globalTarget,
     added: 0,
     usedDays: new Set(),
   };
@@ -129,10 +134,10 @@ function prepare(person) {
 
 const dayLoad = (p, d) => p.busy[d].reduce((sum, b) => sum + (b.end - b.start), 0);
 
-function addEvent(p, day, slot, title, extra = {}) {
+function addEvent(p, day, slot, activity, extra = {}) {
   p.busy[day].push({ start: slot.start, end: slot.end });
   p.events.push({
-    title,
+    title: activity.title,
     day,
     start: toHHMM(slot.start),
     end: toHHMM(slot.end),
@@ -141,80 +146,20 @@ function addEvent(p, day, slot, title, extra = {}) {
   });
   p.added += 1;
   p.usedDays.add(day);
+  activity.placed += 1;
 }
 
-/* ---------- Algorithme de secours (sans IA) ---------- */
+/* ---------- Énumération des créneaux possibles par activité ---------- */
 
-function placeSolo(p) {
-  const titles = p.wants.length ? p.wants : ["Séance"];
-  let titleIndex = p.added;
-  const days = [...p.candidateDays].sort((a, b) => dayLoad(p, a) - dayLoad(p, b));
-
-  for (const day of days) {
-    if (p.added >= p.target) break;
-    if (p.usedDays.has(day)) continue;
-
-    const slot = findSlot(p.busy[day], p.cfg.duration, p.slots, p.limits);
-    if (!slot) continue;
-
-    addEvent(p, day, slot, titles[titleIndex % titles.length]);
-    titleIndex++;
-  }
-}
-
-function placeTogether(a, b) {
-  const duration = Math.max(a.cfg.duration, b.cfg.duration);
-  const wantsB = new Map(b.wants.map((t) => [t.toLowerCase(), t]));
-  const shared = a.wants.filter((t) => wantsB.has(t.toLowerCase()));
-
-  const commonDays = a.candidateDays.filter((d) => b.candidateDays.includes(d));
-  const days = [...commonDays].sort(
-    (x, y) => dayLoad(a, x) + dayLoad(b, x) - (dayLoad(a, y) + dayLoad(b, y))
-  );
-
-  const goal = Math.min(
-    Math.max(1, Math.floor(Math.min(a.target, b.target) / 2)),
-    a.target - a.added,
-    b.target - b.added
-  );
-
-  let titleIndex = 0;
-  let placed = 0;
-
-  for (const day of days) {
-    if (placed >= goal) break;
-    if (a.usedDays.has(day) || b.usedDays.has(day)) continue;
-
-    const slot = findCommonSlot(
-      a.busy[day],
-      b.busy[day],
-      duration,
-      a.slots,
-      b.slots,
-      a.limits,
-      b.limits
-    );
-    if (!slot) continue;
-
-    const title = shared.length ? shared[titleIndex % shared.length] : "Séance ensemble";
-    addEvent(a, day, slot, title, { together: true });
-    addEvent(b, day, slot, title, { together: true });
-    titleIndex++;
-    placed++;
-  }
-}
-
-/* ---------- Choix par l'IA ---------- */
-
-// Liste tous les créneaux possibles pour une personne (un par jour et par moment de la journée)
-function candidateSlots(p) {
+function possibleSlotsForActivity(p, activity) {
   const list = [];
-  for (const day of p.candidateDays) {
-    for (const slotName of p.slots) {
+  for (const day of activity.days.filter((d) => DAYS.includes(d))) {
+    for (const slotName of activity.slots) {
       const slot = findSlot(p.busy[day], p.cfg.duration, [slotName], p.limits);
       if (slot) {
         list.push({
           id: list.length,
+          activityId: activity.id,
           day,
           moment: slotName,
           start: toHHMM(slot.start),
@@ -226,30 +171,38 @@ function candidateSlots(p) {
   return list;
 }
 
+/* ---------- Choix par l'IA ---------- */
+
 async function aiChoose(people) {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
   const payload = people.map((p) => ({
     nom: p.name,
     niveau: p.level,
-    seances_a_placer: p.target - p.added,
-    activites_voulues: p.wants.length ? p.wants : ["Séance"],
+    total_seances_a_placer: p.globalTarget,
+    activites: p.activities.map((a) => ({
+      id: a.id,
+      titre: a.title,
+      seances_a_placer: a.sessions,
+      moments_acceptes: a.slots,
+      jours_acceptes: a.days,
+    })),
     activites_fixes_deja_en_place: p.events
       .filter((e) => e.fixed)
       .map((e) => `${e.day} ${e.start}-${e.end} ${e.title}`),
-    creneaux_libres: candidateSlots(p),
+    creneaux_libres: p.activities.flatMap((a) => possibleSlotsForActivity(p, a)),
   }));
 
   const prompt = `Tu es un coach sportif. Voici les données de ${people.length} personne(s).
-Pour chaque personne, choisis exactement "seances_a_placer" créneaux parmi "creneaux_libres" (utilise leur "id") et attribue une activité à chacun.
+Pour chaque personne, tu dois placer des séances selon les contraintes de chaque activité.
 
-Règles :
+Règles strictes :
+- Pour chaque activité, place exactement "seances_a_placer" séances.
+- Utilise UNIQUEMENT les créneaux de "creneaux_libres" (identifie-les par "id").
+- Chaque créneau ne peut être utilisé qu'une seule fois.
 - Maximum 1 séance par jour et par personne.
-- Répartis les séances sur la semaine (évite les jours consécutifs si possible).
-- Alterne les types d'activités (ne mets pas deux séances identiques d'affilée).
-- Évite une séance intense la veille d'une activité fixe lourde.
-- Utilise uniquement les activités de "activites_voulues".
-- N'ajoute aucune note ni commentaire.
+- Répartis sur la semaine, évite les jours consécutifs si possible.
+- Alterne les activités, ne mets pas deux séances identiques d'affilée.
 
 Réponds UNIQUEMENT avec du JSON valide, sans texte autour, dans ce format :
 {"plans":[{"nom":"...","seances":[{"id":0,"activite":"..."}]}]}
@@ -268,28 +221,75 @@ ${JSON.stringify(payload)}`;
   return JSON.parse(jsonText);
 }
 
-// Applique le choix de l'IA après avoir vérifié chaque séance
+/* ---------- Validation et application du choix IA ---------- */
+
 function applyAi(people, ai) {
   people.forEach((p, i) => {
     const plan = ai.plans?.[i];
     if (!plan || !Array.isArray(plan.seances)) return;
 
-    const slots = candidateSlots(p);
+    const allSlots = p.activities.flatMap((a) => possibleSlotsForActivity(p, a));
+    const usedSlots = new Set();
 
     for (const s of plan.seances) {
-      if (p.added >= p.target) break;
-      const slot = slots.find((x) => x.id === s.id);
+      if (usedSlots.has(s.id)) continue; // Créneau déjà utilisé
+      const slot = allSlots.find((x) => x.id === s.id);
       if (!slot) continue;
       if (p.usedDays.has(slot.day)) continue;
+
+      const activity = p.activities[slot.activityId];
+      if (!activity || activity.placed >= activity.sessions) continue;
 
       const start = toMin(slot.start);
       const end = toMin(slot.end);
       const conflict = p.busy[slot.day].some((b) => overlaps(start, end, b.start, b.end));
       if (conflict) continue;
 
-      addEvent(p, slot.day, { start, end }, s.activite || "Séance");
+      addEvent(p, slot.day, { start, end }, activity);
+      usedSlots.add(s.id);
     }
   });
+}
+
+/* ---------- Algorithme de secours (backtracking) ---------- */
+
+function placeFallback(p) {
+  const activities = p.activities.filter((a) => a.placed < a.sessions);
+  if (activities.length === 0) return;
+
+  // Collecte tous les créneaux libres
+  const allSlots = [];
+  for (const activity of activities) {
+    for (const day of activity.days.filter((d) => DAYS.includes(d))) {
+      for (const slotName of activity.slots) {
+        const slot = findSlot(p.busy[day], p.cfg.duration, [slotName], p.limits);
+        if (slot && !p.usedDays.has(day)) {
+          allSlots.push({
+            activity,
+            day,
+            slot,
+            load: dayLoad(p, day),
+          });
+        }
+      }
+    }
+  }
+
+  // Trie par charge du jour (jours légers en priorité)
+  allSlots.sort((a, b) => a.load - b.load);
+
+  // Remplit greedily
+  for (const { activity, day, slot } of allSlots) {
+    if (activity.placed >= activity.sessions) continue;
+    if (p.usedDays.has(day)) continue;
+
+    const conflict = p.busy[day].some((b) =>
+      overlaps(slot.start, slot.end, b.start, b.end)
+    );
+    if (conflict) continue;
+
+    addEvent(p, day, slot, activity);
+  }
 }
 
 /* ---------- Sortie ---------- */
@@ -308,7 +308,7 @@ function finish(p) {
     events: p.events,
     restDay,
     sessionsAdded: p.added,
-    sessionsTarget: p.target,
+    sessionsTarget: p.globalTarget,
   };
 }
 
@@ -326,6 +326,56 @@ function commonSlots(busyA, busyB) {
     if (dayEnd - cursor >= 60) result.push({ day, start: toHHMM(cursor), end: toHHMM(dayEnd) });
   });
   return result;
+}
+
+/* ---------- Gestion des séances communes (couple) ---------- */
+
+function placeTogether(a, b) {
+  const duration = Math.max(a.cfg.duration, b.cfg.duration);
+  
+  // Activités partagées
+  const wantsB = new Map(b.activities.map((act) => [act.title.toLowerCase(), act]));
+  const shared = a.activities.filter((act) => wantsB.has(act.title.toLowerCase()));
+
+  const commonDays = a.preferredDays.filter((d) => b.preferredDays.includes(d));
+  const days = [...commonDays].sort(
+    (x, y) => dayLoad(a, x) + dayLoad(b, x) - (dayLoad(a, y) + dayLoad(b, y))
+  );
+
+  // But : placer au moins 1 séance en commun si possible
+  let placed = 0;
+  const goal = Math.min(
+    shared.reduce((sum, act) => sum + act.sessions, 0),
+    2
+  );
+
+  for (const day of days) {
+    if (placed >= goal) break;
+    if (a.usedDays.has(day) || b.usedDays.has(day)) continue;
+
+    const slot = findCommonSlot(
+      a.busy[day],
+      b.busy[day],
+      duration,
+      a.preferredSlots,
+      b.preferredSlots,
+      a.limits,
+      b.limits
+    );
+    if (!slot) continue;
+
+    if (shared.length > 0) {
+      const activity = shared[placed % shared.length];
+      if (activity.placed < activity.sessions) {
+        const actB = wantsB.get(activity.title.toLowerCase());
+        if (actB && actB.placed < actB.sessions) {
+          addEvent(a, day, slot, activity, { together: true });
+          addEvent(b, day, slot, actB, { together: true });
+          placed++;
+        }
+      }
+    }
+  }
 }
 
 /* ---------- Handler ---------- */
@@ -361,15 +411,14 @@ export default async function handler(req, res) {
       applyAi(prepared, ai);
       const after = prepared.reduce((n, p) => n + p.added, 0);
 
-      // true seulement si l'IA a réellement placé au moins une séance
       usedAi = after > before;
       console.log(`IA : ${after - before} séance(s) placée(s) (modèle ${MODEL})`);
     } catch (e) {
       console.error("IA indisponible, algorithme de secours :", e.message);
     }
 
-    // Complète avec l'algorithme classique si l'IA n'a pas tout placé
-    prepared.forEach(placeSolo);
+    // Complète avec l'algorithme fallback si l'IA n'a pas tout placé
+    prepared.forEach(placeFallback);
 
     const response = {
       couple,
