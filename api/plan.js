@@ -19,7 +19,8 @@ const LEVELS = {
   avance: { sessions: 4, duration: 75 },
 };
 
-// Modifiable depuis Vercel (Environment Variables) sans toucher au code
+// Modifiable depuis Vercel (Environment Variables) sans toucher au code.
+// Vérifie le nom exact du modèle dans la doc Anthropic (page "Models").
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5-5";
 
 const toMin = (hhmm) => {
@@ -258,7 +259,7 @@ ${JSON.stringify(payload)}`;
 
   const msg = await client.messages.create({
     model: MODEL,
-    max_tokens: 1500,
+    max_tokens: 3000,
     messages: [{ role: "user", content: prompt }],
   });
 
@@ -364,6 +365,7 @@ export default async function handler(req, res) {
 
       // true seulement si l'IA a réellement placé au moins une séance
       usedAi = after > before;
+      console.log(`IA : ${after - before} séance(s) placée(s) (modèle ${MODEL})`);
     } catch (e) {
       console.error("IA indisponible, algorithme de secours :", e.message);
     }
