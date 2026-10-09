@@ -249,10 +249,10 @@ Règles :
 - Alterne les types d'activités (ne mets pas deux séances identiques d'affilée).
 - Évite une séance intense la veille d'une activité fixe lourde.
 - Utilise uniquement les activités de "activites_voulues".
-- Ajoute une courte note utile (10 mots maximum) pour chaque séance.
+- N'ajoute aucune note ni commentaire.
 
 Réponds UNIQUEMENT avec du JSON valide, sans texte autour, dans ce format :
-{"plans":[{"nom":"...","seances":[{"id":0,"activite":"...","note":"..."}]}]}
+{"plans":[{"nom":"...","seances":[{"id":0,"activite":"..."}]}]}
 
 Données :
 ${JSON.stringify(payload)}`;
@@ -287,9 +287,7 @@ function applyAi(people, ai) {
       const conflict = p.busy[slot.day].some((b) => overlaps(start, end, b.start, b.end));
       if (conflict) continue;
 
-      addEvent(p, slot.day, { start, end }, s.activite || "Séance", {
-        note: String(s.note || "").slice(0, 100),
-      });
+      addEvent(p, slot.day, { start, end }, s.activite || "Séance");
     }
   });
 }
