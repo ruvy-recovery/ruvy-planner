@@ -18,7 +18,7 @@ const SLOTS = [
   { id: "soir", label: "Soir" },
 ];
 
-const STEPS = ["Profil", "Ta semaine", "Objectifs", "Personnalisation"];
+const STEPS = ["Profil", "Ta semaine", "Objectifs", "Préférences"];
 
 const COLORS = [
   { bg: "#f2f8f4", border: "#14532d", text: "#14532d" },
@@ -75,8 +75,8 @@ const emptyPerson = (name) => ({
   level: "debutant",
   fixed: [],
   wants: [],
-  preferredDays: [...DAYS],
-  preferredSlots: SLOTS.map((s) => s.id),
+  preferredDays: [],
+  preferredSlots: ["soir"],
   maxSessions: 3,
   earliest: "06:00",
   latest: "22:00",
@@ -90,22 +90,14 @@ const defaultStyle = {
   dayImages: {},
   dayImageOpacity: 0.3,
   accent: "#14532d",
+  textColor: "#151515",
+  stickers: [],
 };
 
 function loadSaved() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : null;
-    if (!parsed) return null;
-    const maxStep = STEPS.length - 1;
-    const restoredStep = parsed.step;
-    return {
-      ...parsed,
-      step: Number.isInteger(restoredStep) && restoredStep >= 0 && restoredStep <= maxStep ? restoredStep : 0,
-      people: Array.isArray(parsed.people)
-        ? parsed.people.map((p) => ({ ...p, preferredDays: [...DAYS], preferredSlots: SLOTS.map((s) => s.id) }))
-        : parsed.people,
-    };
+    return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }
@@ -128,6 +120,8 @@ export default function App() {
   const [active, setActive] = useState(0);
   const [step, setStep] = useState(saved?.step ?? 0);
   const [loading, setLoading] = useState(false);
+  const [cinematic, setCinematic] = useState(false);
+  const [editorTab, setEditorTab] = useState("colors");
   const [error, setError] = useState("");
   const [result, setResult] = useState(saved?.result ?? null);
   const [style, setStyle] = useState({ ...defaultStyle, ...(saved?.style ?? {}) });
@@ -142,7 +136,7 @@ export default function App() {
   const exportRef = useRef(null);
 
   const person = people[active] || people[0];
-  const progress = Math.round((Math.min(step, STEPS.length - 1) / (STEPS.length - 1)) * 100);
+  const progress = Math.round((Math.min(step, 3) / 3) * 100);
 
   // ----- Sauvegarde automatique -----
   useEffect(() => {
@@ -210,6 +204,12 @@ export default function App() {
     });
   };
 
+  // ----- Préférences globales -----
+  const toggleIn = (key, value) => {
+    const list = person[key];
+    update({ [key]: list.includes(value) ? list.filter((v) => v !== value) : [...list, value] });
+  };
+
   // ----- Génération -----
   const generate = async () => {
     setLoading(true);
@@ -223,9 +223,11 @@ export default function App() {
       if (!r.ok) throw new Error("Erreur serveur");
       const data = await r.json();
       setResult(data);
-      setStep(3); // arrive directement sur la personnalisation
+      setStep(4);
       setActive(0);
       setEditing(null);
+      setCinematic(true);
+      window.setTimeout(() => setCinematic(false), 3500);
     } catch (e) {
       setError("Impossible de générer le planning. Réessaie dans un instant.");
     } finally {
@@ -234,7 +236,7 @@ export default function App() {
   };
 
   const next = () => {
-    if (step === 2) generate();
+    if (step === 3) generate();
     else setStep(step + 1);
   };
 
@@ -307,6 +309,10 @@ export default function App() {
 
   // ----- Personnalisation -----
   const setStyleKey = (patch) => setStyle((prev) => ({ ...prev, ...patch }));
+
+  const applyTheme = (theme) => setStyleKey(theme);
+  const addSticker = (sticker) => setStyleKey({ stickers: [...(style.stickers || []), { emoji: sticker, x: 18 + ((style.stickers || []).length * 17) % 70, y: 16 + ((style.stickers || []).length * 23) % 65 }] });
+  const removeSticker = (index) => setStyleKey({ stickers: (style.stickers || []).filter((_, i) => i !== index) });
 
   const onBgImage = async (e) => {
     const file = e.target.files?.[0];
@@ -443,12 +449,13 @@ export default function App() {
                 return (
                   <div
                     key={i}
-                    className={canEdit ? "event editable" : "event"}
+                    className={(canEdit ? "event editable" : "event") + " event-reveal"}
                     onClick={canEdit ? () => startEdit(e.owner, e.evIndex) : undefined}
                     style={{
                       background: c.bg,
                       borderLeft: `3px solid ${warns.length ? "#dc2626" : c.border}`,
                       opacity: e.fixed ? 0.85 : 1,
+                      animationDelay: `${i * 90}ms`,
                     }}
                   >
                     <strong>{e.title}</strong>
@@ -526,12 +533,25 @@ export default function App() {
     <div className="app">
       <style>{css}</style>
 
-      <header className="top no-print">
+      {cinematic && (
+        <div className="cinematic no-print" role="status" aria-live="polite">
+          <div className="cinematic-orbit"><div className="cinematic-core">✦</div></div>
+          <div className="cinematic-track"><span /></div>
+          <div className="cinematic-copy">
+            <p className="cine-line line-1">🔍 Analyse de ta semaine…</p>
+            <p className="cine-line line-2">📅 Placement des séances…</p>
+            <p className="cine-line line-3">✨ Ajout des touches finales…</p>
+            <p className="cine-line line-4">✅ C'est prêt !</p>
+          </div>
+        </div>
+      )}
+
+      <header className={step === 4 ? "top no-print editor-hidden" : "top no-print"}>
         <h1>Mon planning</h1>
         <p>Construis une semaine d'entraînement adaptée à ton niveau.</p>
       </header>
 
-      <div className="progress no-print">
+      <div className={step === 4 ? "progress no-print editor-hidden" : "progress no-print"}>
         <div className="progress-labels">
           {STEPS.map((s, i) => (
             <span key={s} className={i <= step ? "on" : ""}>{s}</span>
@@ -540,7 +560,7 @@ export default function App() {
         <div className="bar"><div className="fill" style={{ width: progress + "%" }} /></div>
       </div>
 
-      {couple && step < 3 && (
+      {couple && step < 4 && (
         <div className="tabs no-print">
           {people.map((p, i) => (
             <button key={i} className={i === active ? "tab on" : "tab"} onClick={() => setActive(i)}>
@@ -732,97 +752,78 @@ export default function App() {
               <div className="want-empty">Rien d'ajouté. Tu peux passer à l'étape suivante.</div>
             )}
           </div>
+        </section>
+      )}
+
+      {/* ---------- ÉTAPE 4 : PRÉFÉRENCES ---------- */}
+      {step === 3 && (
+        <section className="card">
+          <h2>Quels jours peut-on te proposer des séances ?</h2>
+          <p className="hint">Ces réglages s'appliquent à toutes tes activités (sauf si tu en as défini d'autres).</p>
+          <div className="chips">
+            {DAYS.map((d) => (
+              <button
+                key={d}
+                className={person.preferredDays.includes(d) ? "chip on" : "chip"}
+                onClick={() => toggleIn("preferredDays", d)}
+              >
+                {SHORT[d]}
+              </button>
+            ))}
+          </div>
+
+          <h2>À quel moment de la journée ?</h2>
+          <p className="hint">Tu peux en choisir plusieurs.</p>
+          <div className="chips">
+            {SLOTS.map((s) => (
+              <button
+                key={s.id}
+                className={person.preferredSlots.includes(s.id) ? "chip on" : "chip"}
+                onClick={() => toggleIn("preferredSlots", s.id)}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+
+          <h2>Entre quelles heures peut-on te proposer des séances ?</h2>
+          <p className="hint">Aucune séance ne sera placée en dehors de cette plage.</p>
+          <div className="row">
+            <label className="field">De
+              <input type="time" className="input" value={person.earliest} onChange={(e) => update({ earliest: e.target.value })} />
+            </label>
+            <label className="field">À
+              <input type="time" className="input" value={person.latest} onChange={(e) => update({ latest: e.target.value })} />
+            </label>
+          </div>
           {error && <p className="error">{error}</p>}
         </section>
       )}
 
-      {/* ---------- ÉTAPE 4 : PERSONNALISATION + RÉSULTAT ---------- */}
-      {step === 3 && result && (
+      {/* ---------- ÉTAPE 5 : PERSONNALISATION + RÉSULTAT ---------- */}
+      {step === 4 && result && (
         <>
-          {/* Panneau de personnalisation (une seule page pour les deux) */}
-          <section className="card no-print">
-            <h2>Personnalisation</h2>
-            <p className="hint">
-              {couple
-                ? "Un seul réglage pour le planning commun du couple."
-                : "Règle l'apparence de ton planning."}
-            </p>
-
-            <label className="label">Titre du planning</label>
-            <input
-              className="input full"
-              value={style.title}
-              onChange={(e) => setStyleKey({ title: e.target.value })}
-            />
-
-            <div className="row spaced">
-              <label className="field">Couleur de fond
-                <input
-                  type="color"
-                  className="color"
-                  value={style.bgColor}
-                  onChange={(e) => setStyleKey({ bgColor: e.target.value })}
-                />
-              </label>
-              <label className="field">Couleur d'accent
-                <input
-                  type="color"
-                  className="color"
-                  value={style.accent}
-                  onChange={(e) => setStyleKey({ accent: e.target.value })}
-                />
-              </label>
-            </div>
-
-            <label className="label">Image de fond</label>
-            <div className="row">
-              <input type="file" accept="image/*" onChange={onBgImage} />
-              {style.bgImage && (
-                <button className="link" onClick={() => setStyleKey({ bgImage: "" })}>
-                  Retirer l'image
-                </button>
-              )}
-            </div>
-            {style.bgImage && (
-              <label className="field slider">
-                Transparence de l'image : {Math.round(style.bgOpacity * 100)} %
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={style.bgOpacity}
-                  onChange={(e) => setStyleKey({ bgOpacity: Number(e.target.value) })}
-                />
-              </label>
-            )}
-
-            <label className="label">Images par jour <em>(optionnel)</em></label>
-            <div className="day-images">
-              {DAYS.map((d) => (
-                <div key={d} className="day-image-row">
-                  <span>{SHORT[d]}</span>
-                  <input type="file" accept="image/*" onChange={(e) => onDayImage(d, e)} />
-                  {style.dayImages[d] && (
-                    <button className="link" onClick={() => removeDayImage(d)}>Retirer</button>
-                  )}
-                </div>
-              ))}
-            </div>
-            {Object.keys(style.dayImages).length > 0 && (
-              <label className="field slider">
-                Transparence des images de jour : {Math.round(style.dayImageOpacity * 100)} %
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={style.dayImageOpacity}
-                  onChange={(e) => setStyleKey({ dayImageOpacity: Number(e.target.value) })}
-                />
-              </label>
-            )}
-          </section>
+          <div className="editor-layout no-print">
+            <aside className="editor-sidebar">
+              <div className="editor-brand"><span>✦</span><div><strong>Atelier</strong><small>Ton planning, ta signature</small></div></div>
+              <div className="editor-tabs">
+                <button className={editorTab === "colors" ? "editor-tab active" : "editor-tab"} onClick={() => setEditorTab("colors")}>🎨 <span>Couleurs</span></button>
+                <button className={editorTab === "stickers" ? "editor-tab active" : "editor-tab"} onClick={() => setEditorTab("stickers")}>✨ <span>Stickers</span></button>
+                <button className={editorTab === "edit" ? "editor-tab active" : "editor-tab"} onClick={() => setEditorTab("edit")}>✏️ <span>Modification</span></button>
+              </div>
+            </aside>
+            <section className="editor-panel">
+              <div className="editor-panel-head"><div><span className="eyebrow">PERSONNALISATION</span><h2>{editorTab === "colors" ? "Donne-lui ta couleur" : editorTab === "stickers" ? "Ajoute ton énergie" : "Ajuste tes séances"}</h2></div><span className="editor-status">● Sauvegardé</span></div>
+              {editorTab === "colors" && <div className="control-grid">
+                <label className="label">Titre du planning<input className="input full" value={style.title} onChange={(e) => setStyleKey({ title: e.target.value })} /></label>
+                <div className="color-grid"><label className="field">Fond<input type="color" className="color" value={style.bgColor} onChange={(e) => setStyleKey({ bgColor: e.target.value })} /></label><label className="field">Accent<input type="color" className="color" value={style.accent} onChange={(e) => setStyleKey({ accent: e.target.value })} /></label><label className="field">Texte<input type="color" className="color" value={style.textColor || "#151515"} onChange={(e) => setStyleKey({ textColor: e.target.value })} /></label></div>
+                <div><label className="label">Thèmes prêts à l'emploi</label><div className="theme-row"><button className="theme theme-aurora" onClick={() => applyTheme({ bgColor: "#101026", accent: "#a78bfa", textColor: "#f5f3ff" })}>Aurora</button><button className="theme theme-sunset" onClick={() => applyTheme({ bgColor: "#fff7ed", accent: "#ea580c", textColor: "#431407" })}>Sunset</button><button className="theme theme-forest" onClick={() => applyTheme({ bgColor: "#f2f8f4", accent: "#14532d", textColor: "#163324" })}>Forêt</button></div></div>
+                <label className="label">Arrière-plan <input type="file" accept="image/*" onChange={onBgImage} /></label>{style.bgImage && <><button className="link" onClick={() => setStyleKey({ bgImage: "" })}>Retirer l'image</button><label className="field slider">Transparence : {Math.round(style.bgOpacity * 100)} %<input type="range" min="0" max="1" step="0.05" value={style.bgOpacity} onChange={(e) => setStyleKey({ bgOpacity: Number(e.target.value) })} /></label></>}
+              </div>}
+              {editorTab === "stickers" && <div className="control-grid"><p className="hint">Choisis un signe distinctif, puis ajoute des images par jour comme arrière-plan ou logo.</p><div className="sticker-palette">{["🔥","⚡","🏋️","🥊","🏃","🧘","🚴","🏆","💪","🌙"].map((x) => <button key={x} className="sticker-btn" onClick={() => addSticker(x)}>{x}</button>)}</div><label className="label">Images / logos par jour</label><div className="day-images">{DAYS.map((d) => <div key={d} className="day-image-row"><span>{SHORT[d]}</span><input type="file" accept="image/*" onChange={(e) => onDayImage(d, e)} />{style.dayImages[d] && <button className="link" onClick={() => removeDayImage(d)}>Retirer</button>}</div>)}</div>{Object.keys(style.dayImages).length > 0 && <label className="field slider">Transparence : {Math.round(style.dayImageOpacity * 100)} %<input type="range" min="0" max="1" step="0.05" value={style.dayImageOpacity} onChange={(e) => setStyleKey({ dayImageOpacity: Number(e.target.value) })} /></label>}<div className="sticker-list">{(style.stickers || []).map((s, i) => <button key={i} className="sticker-chip" onClick={() => removeSticker(i)}>{s.emoji} <small>retirer</small></button>)}</div></div>}
+              {editorTab === "edit" && <div className="control-grid"><p className="hint">Clique sur une séance ajoutée dans le planning pour modifier son jour, ses horaires ou la supprimer.</p>{renderEditor()}<p className="warn-text editor-warning">⚠ Les séances ajoutées peuvent être décalées de 30 minutes maximum. Les avertissements restent sans blocage.</p></div>}
+            </section>
+          </div>
 
           {/* Planning (zone exportée) */}
           <section className="card plan-card">
@@ -845,7 +846,8 @@ export default function App() {
                 />
               )}
 
-              <div style={{ position: "relative", padding: 20 }}>
+              {(style.stickers || []).map((sticker, i) => <span key={i} className="floating-sticker" style={{ left: sticker.x + "%", top: sticker.y + "%" }}>{sticker.emoji}</span>)}
+              <div style={{ position: "relative", padding: 20, color: style.textColor || "#151515" }}>
                 <h2 style={{ color: style.accent, marginTop: 0 }}>
                   {style.title || (couple ? "Votre planning" : `Planning de ${result.plans[0].name}`)}
                 </h2>
@@ -903,8 +905,8 @@ export default function App() {
 
             <div className="row no-print end">
               <button className="btn ghost" onClick={restart}>Recommencer</button>
-              <button className="btn ghost" onClick={() => setStep(2)}>Modifier mes choix</button>
-              <button className="btn ghost" onClick={() => window.print()}>Imprimer</button>
+              <button className="btn ghost" onClick={() => setStep(3)}>← Modifier mes choix</button>
+              <button className="btn ghost" onClick={() => window.print()}>🖨️ Imprimer / Télécharger</button>
               <button className="btn ghost" disabled={exporting} onClick={exportPNG}>
                 {exporting ? "Export..." : "Export PNG"}
               </button>
@@ -916,13 +918,13 @@ export default function App() {
         </>
       )}
 
-      {step < 3 && (
+      {step < 4 && (
         <footer className="nav no-print">
           <button className="btn ghost" disabled={step === 0} onClick={() => setStep(step - 1)}>
             Retour
           </button>
           <button className="btn" disabled={loading} onClick={next}>
-            {step === 2 ? (loading ? "Génération..." : "Générer mon planning") : "Suivant"}
+            {step === 3 ? (loading ? "Génération..." : "Générer mon planning") : "Suivant"}
           </button>
         </footer>
       )}
@@ -1005,23 +1007,22 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .badge-ia { display: inline-block; margin: 0 0 14px; padding: 5px 14px; border-radius: 999px; background: #f3eefe; color: #5b3fd1; font-size: 13px; font-weight: 600; }
 .common { margin-top: 32px; }
 .wants { display: flex; flex-direction: column; gap: 14px; margin-top: 20px; }
-.want-card { border: 1px solid #ececE8; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 10px; background: #fafaf8; }
-.want-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 4px; }
-.want-head div { display: flex; align-items: center; gap: 8px; }
-.want-empty { color: #a3a3a3; font-size: 14px; text-align: center; border: 1px dashed #e0e0dc; border-radius: 12px; padding: 14px; }
-.editor { margin-top: 20px; padding: 18px; border: 1px solid #e0e0dc; border-radius: 14px; background: #fafaf8; display: flex; flex-direction: column; gap: 12px; }
-.editor-head { display: flex; justify-content: space-between; align-items: center; }
-.warn-text { color: #dc2626; font-size: 13px; margin: 0; font-weight: 500; }
-.day-images { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
-.day-image-row { display: flex; align-items: center; gap: 12px; font-size: 13px; }
-.day-image-row span { width: 36px; font-weight: 600; }
-.export-zone { border-radius: 14px; }
-@media (max-width: 560px) { .card { padding: 22px; } .progress-labels { font-size: 11px; } }
-@media print {
-  .no-print { display: none !important; }
-  body { background: #fff; }
-  .app { padding: 0; max-width: none; }
-  .card { border: none; padding: 0; box-shadow: none; }
-  .week { grid-template-columns: repeat(7, 1fr); }
-}
+.want-card { border: 1px solid #ececE8; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+.editor-hidden { display: none !important; }
+.cinematic { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; align-content: center; gap: 24px; background: radial-gradient(circle at 50% 42%, #39206f 0, #171329 28%, #090812 72%); color: white; overflow: hidden; }
+.cinematic::before { content: ""; position: absolute; inset: 0; opacity: .22; background-image: linear-gradient(rgba(167,139,250,.12) 1px, transparent 1px), linear-gradient(90deg, rgba(167,139,250,.12) 1px, transparent 1px); background-size: 48px 48px; transform: perspective(500px) rotateX(55deg) scale(1.6); transform-origin: bottom; }
+.cinematic-orbit { position: relative; z-index: 1; width: 132px; height: 132px; border-radius: 50%; border: 1px solid rgba(216,180,254,.35); box-shadow: 0 0 30px #8b5cf6, inset 0 0 30px rgba(139,92,246,.5); animation: orbitPulse 1.5s ease-in-out infinite; display: grid; place-items: center; }
+.cinematic-orbit::after { content: ""; position: absolute; inset: -12px; border: 2px solid transparent; border-top-color: #f0abfc; border-right-color: #818cf8; border-radius: 50%; animation: spin 1.1s linear infinite; }
+.cinematic-core { font-size: 42px; color: #e9d5ff; text-shadow: 0 0 24px #c084fc; animation: coreGlow 1s ease-in-out infinite alternate; }
+.cinematic-track { z-index: 1; width: min(360px, 70vw); height: 4px; border-radius: 9px; background: rgba(255,255,255,.14); overflow: hidden; }
+.cinematic-track span { display: block; height: 100%; width: 0; background: linear-gradient(90deg,#f0abfc,#8b5cf6,#67e8f9); animation: fillCine 3.5s linear forwards; }
+.cinematic-copy { z-index: 1; position: relative; min-height: 30px; text-align: center; }
+.cine-line { position: absolute; width: 100%; margin: 0; opacity: 0; font-size: clamp(16px, 2.5vw, 22px); font-weight: 600; letter-spacing: .01em; white-space: nowrap; }
+.line-1 { animation: cineText 3.5s 0s both; color: #c4b5fd; }.line-2 { animation: cineText 3.5s .82s both; color: #93c5fd; }.line-3 { animation: cineText 3.5s 1.64s both; color: #f0abfc; }.line-4 { animation: cineText 3.5s 2.46s both; color: #86efac; }
+.editor-layout { display: grid; grid-template-columns: 190px 1fr; gap: 20px; margin-bottom: 22px; padding: 18px; border-radius: 24px; background: linear-gradient(135deg,#141126,#1d1534); color: #f5f3ff; box-shadow: 0 24px 70px rgba(53,27,105,.22); }
+.editor-sidebar { display: flex; flex-direction: column; }.editor-brand { display:flex; gap:10px; align-items:center; margin-bottom: 28px; }.editor-brand > span { display:grid; place-items:center; width:34px; height:34px; border-radius:11px; background:linear-gradient(135deg,#c084fc,#7c3aed); box-shadow:0 0 20px #7c3aed; }.editor-brand strong,.editor-brand small { display:block; }.editor-brand small { color:#aaa3c9; font-size:10px; margin-top:3px; }.editor-tabs { display:flex; flex-direction:column; gap:6px; }.editor-tab { border:0; background:transparent; color:#aaa3c9; text-align:left; padding:12px 10px; border-radius:12px; font:inherit; cursor:pointer; display:flex; gap:10px; align-items:center; }.editor-tab.active { color:#fff; background:rgba(167,139,250,.18); box-shadow:inset 3px 0 #c084fc; }.editor-panel { min-width:0; background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.1); border-radius:18px; padding:22px; }.editor-panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:20px; }.editor-panel h2 { color:#fff; margin:5px 0 0; }.eyebrow { color:#c084fc; font-size:10px; font-weight:700; letter-spacing:.16em; }.editor-status { color:#86efac; font-size:11px; }.control-grid { display:grid; gap:16px; }.editor-panel .label { color:#dcd6f2; }.editor-panel .input,.editor-panel .color { background:rgba(8,6,20,.45); border-color:#493c6b; color:#fff; }.editor-panel .hint { color:#b9b1d0; }.color-grid { display:flex; gap:24px; }.theme-row { display:flex; gap:8px; flex-wrap:wrap; }.theme { border:1px solid #5b4a83; color:#fff; border-radius:10px; padding:10px 14px; cursor:pointer; background:#26203d; }.theme-aurora { background:linear-gradient(135deg,#16122e,#6d28d9); }.theme-sunset { background:linear-gradient(135deg,#7c2d12,#fb923c); }.theme-forest { background:linear-gradient(135deg,#14532d,#65a30d); }.sticker-palette { display:flex; flex-wrap:wrap; gap:8px; }.sticker-btn { border:1px solid #58477c; background:#211a3a; border-radius:12px; font-size:24px; width:46px; height:46px; cursor:pointer; transition:transform .15s; }.sticker-btn:hover { transform:translateY(-3px) rotate(-4deg); }.sticker-list { display:flex; gap:8px; flex-wrap:wrap; }.sticker-chip { border:1px solid #66538d; background:#2a2147; color:#fff; border-radius:99px; padding:6px 10px; cursor:pointer; }.sticker-chip small { color:#b8add4; }.editor-warning { color:#ff7b87 !important; border-left:2px solid #ef4444; padding-left:10px; }.floating-sticker { position:absolute; z-index:2; font-size:28px; filter:drop-shadow(0 4px 8px rgba(0,0,0,.18)); transform:rotate(-8deg); }.event-reveal { animation: eventReveal .55s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes spin { to { transform:rotate(360deg); } } @keyframes orbitPulse { 50% { transform:scale(1.05); box-shadow:0 0 55px #a78bfa, inset 0 0 36px rgba(139,92,246,.7); } } @keyframes coreGlow { to { transform:scale(1.14) rotate(8deg); } } @keyframes fillCine { to { width:100%; } } @keyframes cineText { 0%,18% { opacity:0; transform:translateY(10px); } 24%,44% { opacity:1; transform:translateY(0); } 52%,100% { opacity:0; transform:translateY(-10px); } } @keyframes eventReveal { from { opacity:0; transform:scale(.84) translateY(8px); } to { opacity:1; transform:scale(1) translateY(0); } }
+@media (max-width: 680px) { .editor-layout { display:block; padding:12px; }.editor-sidebar { display:block; }.editor-brand { margin:4px 4px 12px; }.editor-tabs { flex-direction:row; gap:4px; }.editor-tab { flex:1; justify-content:center; padding:10px 4px; font-size:12px; }.editor-tab span { display:none; }.editor-panel { margin-top:10px; padding:16px; }.editor-panel-head { margin-bottom:14px; }.color-grid { gap:14px; }.app { padding:26px 12px 54px; } }
+@media print { .editor-layout, .no-print { display:none !important; } .plan-card { border:0; box-shadow:none; } }
+
 `;
