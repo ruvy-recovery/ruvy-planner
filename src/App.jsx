@@ -18,7 +18,7 @@ const SLOTS = [
   { id: "soir", label: "Soir" },
 ];
 
-const STEPS = ["Profil", "Ta semaine", "Objectifs", "Préférences"];
+const STEPS = ["Profil", "Ta semaine", "Objectifs"];
 
 const COLORS = [
   { bg: "#f2f8f4", border: "#14532d", text: "#14532d" },
@@ -84,13 +84,13 @@ const emptyPerson = (name) => ({
 
 const defaultStyle = {
   title: "Mon planning",
-  bgColor: "#ffffff",
+  bgColor: "#18132c",
   bgImage: "",
   bgOpacity: 0.25,
   dayImages: {},
   dayImageOpacity: 0.3,
-  accent: "#14532d",
-  textColor: "#151515",
+  accent: "#a78bfa",
+  textColor: "#f5f3ff",
   stickers: [],
 };
 
@@ -118,7 +118,7 @@ export default function App() {
   const [couple, setCouple] = useState(saved?.couple ?? false);
   const [people, setPeople] = useState(saved?.people ?? [emptyPerson("Toi")]);
   const [active, setActive] = useState(0);
-  const [step, setStep] = useState(saved?.step ?? 0);
+  const [step, setStep] = useState(saved?.result ? 4 : Math.min(saved?.step ?? 0, 2));
   const [loading, setLoading] = useState(false);
   const [cinematic, setCinematic] = useState(false);
   const [editorTab, setEditorTab] = useState("colors");
@@ -136,7 +136,12 @@ export default function App() {
   const exportRef = useRef(null);
 
   const person = people[active] || people[0];
-  const progress = Math.round((Math.min(step, 3) / 3) * 100);
+  const progress = Math.round((Math.min(step, 2) / 2) * 100);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("editor-active", step === 4);
+    return () => document.documentElement.classList.remove("editor-active");
+  }, [step]);
 
   // ----- Sauvegarde automatique -----
   useEffect(() => {
@@ -204,7 +209,7 @@ export default function App() {
     });
   };
 
-  // ----- Préférences globales -----
+  // Réglages internes conservés pour la génération (sans étape affichée).
   const toggleIn = (key, value) => {
     const list = person[key];
     update({ [key]: list.includes(value) ? list.filter((v) => v !== value) : [...list, value] });
@@ -227,7 +232,7 @@ export default function App() {
       setActive(0);
       setEditing(null);
       setCinematic(true);
-      window.setTimeout(() => setCinematic(false), 3500);
+      window.setTimeout(() => setCinematic(false), 6000);
     } catch (e) {
       setError("Impossible de générer le planning. Réessaie dans un instant.");
     } finally {
@@ -236,7 +241,7 @@ export default function App() {
   };
 
   const next = () => {
-    if (step === 3) generate();
+    if (step === 2) generate();
     else setStep(step + 1);
   };
 
@@ -756,7 +761,7 @@ export default function App() {
       )}
 
       {/* ---------- ÉTAPE 4 : PRÉFÉRENCES ---------- */}
-      {step === 3 && (
+      {false && (
         <section className="card">
           <h2>Quels jours peut-on te proposer des séances ?</h2>
           <p className="hint">Ces réglages s'appliquent à toutes tes activités (sauf si tu en as défini d'autres).</p>
@@ -803,6 +808,7 @@ export default function App() {
       {/* ---------- ÉTAPE 5 : PERSONNALISATION + RÉSULTAT ---------- */}
       {step === 4 && result && (
         <>
+          <div className="editor-workspace">
           <div className="editor-layout no-print">
             <aside className="editor-sidebar">
               <div className="editor-brand"><span>✦</span><div><strong>Atelier</strong><small>Ton planning, ta signature</small></div></div>
@@ -905,7 +911,7 @@ export default function App() {
 
             <div className="row no-print end">
               <button className="btn ghost" onClick={restart}>Recommencer</button>
-              <button className="btn ghost" onClick={() => setStep(3)}>← Modifier mes choix</button>
+              <button className="btn ghost" onClick={() => setStep(2)}>← Modifier mes choix</button>
               <button className="btn ghost" onClick={() => window.print()}>🖨️ Imprimer / Télécharger</button>
               <button className="btn ghost" disabled={exporting} onClick={exportPNG}>
                 {exporting ? "Export..." : "Export PNG"}
@@ -915,6 +921,7 @@ export default function App() {
               </button>
             </div>
           </section>
+          </div>
         </>
       )}
 
@@ -924,7 +931,7 @@ export default function App() {
             Retour
           </button>
           <button className="btn" disabled={loading} onClick={next}>
-            {step === 3 ? (loading ? "Génération..." : "Générer mon planning") : "Suivant"}
+            {step === 2 ? (loading ? "Génération..." : "Générer le planning") : "Suivant"}
           </button>
         </footer>
       )}
@@ -1015,14 +1022,35 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .cinematic-orbit::after { content: ""; position: absolute; inset: -12px; border: 2px solid transparent; border-top-color: #f0abfc; border-right-color: #818cf8; border-radius: 50%; animation: spin 1.1s linear infinite; }
 .cinematic-core { font-size: 42px; color: #e9d5ff; text-shadow: 0 0 24px #c084fc; animation: coreGlow 1s ease-in-out infinite alternate; }
 .cinematic-track { z-index: 1; width: min(360px, 70vw); height: 4px; border-radius: 9px; background: rgba(255,255,255,.14); overflow: hidden; }
-.cinematic-track span { display: block; height: 100%; width: 0; background: linear-gradient(90deg,#f0abfc,#8b5cf6,#67e8f9); animation: fillCine 3.5s linear forwards; }
+.cinematic-track span { display: block; height: 100%; width: 0; background: linear-gradient(90deg,#f0abfc,#8b5cf6,#67e8f9); animation: fillCine 6s linear forwards; }
 .cinematic-copy { z-index: 1; position: relative; min-height: 30px; text-align: center; }
 .cine-line { position: absolute; width: 100%; margin: 0; opacity: 0; font-size: clamp(16px, 2.5vw, 22px); font-weight: 600; letter-spacing: .01em; white-space: nowrap; }
-.line-1 { animation: cineText 3.5s 0s both; color: #c4b5fd; }.line-2 { animation: cineText 3.5s .82s both; color: #93c5fd; }.line-3 { animation: cineText 3.5s 1.64s both; color: #f0abfc; }.line-4 { animation: cineText 3.5s 2.46s both; color: #86efac; }
+.line-1 { animation: cineText 6s 0s both; color: #c4b5fd; }.line-2 { animation: cineText 6s 1.5s both; color: #93c5fd; }.line-3 { animation: cineText 6s 3s both; color: #f0abfc; }.line-4 { animation: cineText 6s 4.5s both; color: #86efac; }
 .editor-layout { display: grid; grid-template-columns: 190px 1fr; gap: 20px; margin-bottom: 22px; padding: 18px; border-radius: 24px; background: linear-gradient(135deg,#141126,#1d1534); color: #f5f3ff; box-shadow: 0 24px 70px rgba(53,27,105,.22); }
 .editor-sidebar { display: flex; flex-direction: column; }.editor-brand { display:flex; gap:10px; align-items:center; margin-bottom: 28px; }.editor-brand > span { display:grid; place-items:center; width:34px; height:34px; border-radius:11px; background:linear-gradient(135deg,#c084fc,#7c3aed); box-shadow:0 0 20px #7c3aed; }.editor-brand strong,.editor-brand small { display:block; }.editor-brand small { color:#aaa3c9; font-size:10px; margin-top:3px; }.editor-tabs { display:flex; flex-direction:column; gap:6px; }.editor-tab { border:0; background:transparent; color:#aaa3c9; text-align:left; padding:12px 10px; border-radius:12px; font:inherit; cursor:pointer; display:flex; gap:10px; align-items:center; }.editor-tab.active { color:#fff; background:rgba(167,139,250,.18); box-shadow:inset 3px 0 #c084fc; }.editor-panel { min-width:0; background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.1); border-radius:18px; padding:22px; }.editor-panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:20px; }.editor-panel h2 { color:#fff; margin:5px 0 0; }.eyebrow { color:#c084fc; font-size:10px; font-weight:700; letter-spacing:.16em; }.editor-status { color:#86efac; font-size:11px; }.control-grid { display:grid; gap:16px; }.editor-panel .label { color:#dcd6f2; }.editor-panel .input,.editor-panel .color { background:rgba(8,6,20,.45); border-color:#493c6b; color:#fff; }.editor-panel .hint { color:#b9b1d0; }.color-grid { display:flex; gap:24px; }.theme-row { display:flex; gap:8px; flex-wrap:wrap; }.theme { border:1px solid #5b4a83; color:#fff; border-radius:10px; padding:10px 14px; cursor:pointer; background:#26203d; }.theme-aurora { background:linear-gradient(135deg,#16122e,#6d28d9); }.theme-sunset { background:linear-gradient(135deg,#7c2d12,#fb923c); }.theme-forest { background:linear-gradient(135deg,#14532d,#65a30d); }.sticker-palette { display:flex; flex-wrap:wrap; gap:8px; }.sticker-btn { border:1px solid #58477c; background:#211a3a; border-radius:12px; font-size:24px; width:46px; height:46px; cursor:pointer; transition:transform .15s; }.sticker-btn:hover { transform:translateY(-3px) rotate(-4deg); }.sticker-list { display:flex; gap:8px; flex-wrap:wrap; }.sticker-chip { border:1px solid #66538d; background:#2a2147; color:#fff; border-radius:99px; padding:6px 10px; cursor:pointer; }.sticker-chip small { color:#b8add4; }.editor-warning { color:#ff7b87 !important; border-left:2px solid #ef4444; padding-left:10px; }.floating-sticker { position:absolute; z-index:2; font-size:28px; filter:drop-shadow(0 4px 8px rgba(0,0,0,.18)); transform:rotate(-8deg); }.event-reveal { animation: eventReveal .55s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes spin { to { transform:rotate(360deg); } } @keyframes orbitPulse { 50% { transform:scale(1.05); box-shadow:0 0 55px #a78bfa, inset 0 0 36px rgba(139,92,246,.7); } } @keyframes coreGlow { to { transform:scale(1.14) rotate(8deg); } } @keyframes fillCine { to { width:100%; } } @keyframes cineText { 0%,18% { opacity:0; transform:translateY(10px); } 24%,44% { opacity:1; transform:translateY(0); } 52%,100% { opacity:0; transform:translateY(-10px); } } @keyframes eventReveal { from { opacity:0; transform:scale(.84) translateY(8px); } to { opacity:1; transform:scale(1) translateY(0); } }
 @media (max-width: 680px) { .editor-layout { display:block; padding:12px; }.editor-sidebar { display:block; }.editor-brand { margin:4px 4px 12px; }.editor-tabs { flex-direction:row; gap:4px; }.editor-tab { flex:1; justify-content:center; padding:10px 4px; font-size:12px; }.editor-tab span { display:none; }.editor-panel { margin-top:10px; padding:16px; }.editor-panel-head { margin-bottom:14px; }.color-grid { gap:14px; }.app { padding:26px 12px 54px; } }
+/* Mode éditeur : atelier + aperçu côte à côte, sans surface blanche. */
+html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff; }
+.editor-workspace { display:grid; grid-template-columns:190px minmax(280px,1fr) minmax(390px,1.35fr); gap:20px; align-items:start; }
+.editor-workspace .editor-layout { display:contents; }
+.editor-workspace .editor-sidebar { grid-column:1; position:sticky; top:20px; padding:18px 0; }
+.editor-workspace .editor-panel { grid-column:2; position:sticky; top:20px; }
+.editor-workspace .plan-card { grid-column:3; position:sticky; top:20px; margin:0; background:#141026; border-color:#30234d; color:#eee9ff; }
+.editor-workspace .plan-card .export-zone { background:#18132c !important; }
+.editor-workspace .plan-card .day { background:#211a38; border-color:#40335f; }
+.editor-workspace .plan-card .day h3, .editor-workspace .plan-card .legend-item { color:#eee9ff; }
+.editor-workspace .plan-card .event { background:#2a2148 !important; color:#f5f3ff; }
+.editor-workspace .plan-card .event span, .editor-workspace .plan-card .hint, .editor-workspace .plan-card .rest { color:#c8bfdf; }
+.editor-workspace .plan-card .badge-ia { background:#2d2250; color:#d8b4fe; }
+.editor-workspace .plan-card .list li { background:#211a38; border-color:#40335f; color:#f5f3ff; }
+.editor-workspace .plan-card .list small { color:#c8bfdf; }
+.editor-workspace .row.end .btn, .editor-workspace .plan-card .btn.ghost { background:#211a38; border-color:#6d4db0; color:#eee9ff; }
+.editor-workspace input[type=file] { color:#d8cef0; background:#17112c; border:1px solid #493c6b; border-radius:10px; padding:5px; }
+.editor-workspace input[type=file]::file-selector-button { border:0; border-radius:8px; padding:8px 12px; margin-right:8px; background:#7c3aed; color:#fff; cursor:pointer; font:inherit; }
+@media (max-width: 1050px) { .editor-workspace { grid-template-columns:180px minmax(260px,1fr) minmax(320px,1fr); gap:12px; } }
+@media (max-width: 760px) { .editor-workspace { display:block; } .editor-workspace .editor-sidebar, .editor-workspace .editor-panel, .editor-workspace .plan-card { position:static; } .editor-workspace .editor-layout { display:block; } .editor-workspace .plan-card { margin-top:14px; } }
+
 @media print { .editor-layout, .no-print { display:none !important; } .plan-card { border:0; box-shadow:none; } }
 
 `;
