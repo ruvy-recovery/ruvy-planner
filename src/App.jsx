@@ -18,7 +18,7 @@ const SLOTS = [
   { id: "soir", label: "Soir" },
 ];
 
-const STEPS = ["Profil", "Ta semaine", "Objectifs", "Préférences", "Personnalisation"];
+const STEPS = ["Profil", "Ta semaine", "Objectifs", "Personnalisation"];
 
 const COLORS = [
   { bg: "#f2f8f4", border: "#14532d", text: "#14532d" },
@@ -33,7 +33,8 @@ const CATEGORIES = [
   { name: "Travail", words: ["travail", "boulot", "bureau", "cours", "école", "ecole", "fac"] },
 ];
 
-const STORAGE_KEY = "mon-planning-v1";
+const STORAGE_KEY = "ruvy-planner-v2";
+const MAX_SHIFT_MIN = 30;
 
 function classify(title) {
   const t = String(title).toLowerCase();
@@ -60,45 +61,62 @@ function groupFixed(list) {
   }));
 }
 
+function toMin(t) {
+  const [h, m] = String(t || "00:00").split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+function overlaps(a, b) {
+  return toMin(a.start) < toMin(b.end) && toMin(b.start) < toMin(a.end);
+}
+
 const emptyPerson = (name) => ({
   name,
   level: "debutant",
   fixed: [],
   wants: [],
-  preferredDays: [],
-  preferredSlots: ["soir"],
+  preferredDays: [...DAYS],
+  preferredSlots: SLOTS.map((s) => s.id),
   maxSessions: 3,
   earliest: "06:00",
   latest: "22:00",
 });
 
 const defaultStyle = {
+  title: "Mon planning",
+  bgColor: "#ffffff",
   bgImage: "",
-  bgOpacity: 0.15,
+  bgOpacity: 0.25,
   dayImages: {},
-  dayOpacity: 0.2,
-};
-
-const toMin = (t) => {
-  const [h, m] = String(t || "0:0").split(":").map(Number);
-  return (h || 0) * 60 + (m || 0);
+  dayImageOpacity: 0.3,
+  accent: "#14532d",
 };
 
 function loadSaved() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!parsed) return null;
+    const maxStep = STEPS.length - 1;
+    const restoredStep = parsed.step;
+    return {
+      ...parsed,
+      step: Number.isInteger(restoredStep) && restoredStep >= 0 && restoredStep <= maxStep ? restoredStep : 0,
+      people: Array.isArray(parsed.people)
+        ? parsed.people.map((p) => ({ ...p, preferredDays: [...DAYS], preferredSlots: SLOTS.map((s) => s.id) }))
+        : parsed.people,
+    };
   } catch {
     return null;
   }
 }
 
-function readFileAsDataUrl(file) {
+function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
   });
 }
 
@@ -112,16 +130,19 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState(saved?.result ?? null);
-  const [style, setStyle] = useState(saved?.style ?? defaultStyle);
-  const [editing, setEditing] = useState(null);
+  const [style, setStyle] = useState({ ...defaultStyle, ...(saved?.style ?? {}) });
+  const [exporting, setExporting] = useState(false);
 
   const [draft, setDraft] = useState({ title: "", days: [], start: "18:00", end: "19:00" });
   const [wantDraft, setWantDraft] = useState("");
 
+  // édition d'un événement du résultat : { plan, index } ou null
+  const [editing, setEditing] = useState(null);
+
   const exportRef = useRef(null);
 
   const person = people[active] || people[0];
-  const progress = Math.round((step / (STEPS.length - 1)) * 100);
+  const progress = Math.round((Math.min(step, STEPS.length - 1) / (STEPS.length - 1)) * 100);
 
   // ----- Sauvegarde automatique -----
   useEffect(() => {
@@ -130,8 +151,8 @@ export default function App() {
         STORAGE_KEY,
         JSON.stringify({ couple, people, step, result, style })
       );
-    } catch {
-      /* stockage plein : on ignore */
+    } catch (e) {
+      // quota dépassé (images trop lourdes) : on ignore sans casser l'app
     }
   }, [couple, people, step, result, style]);
 
@@ -189,12 +210,6 @@ export default function App() {
     });
   };
 
-  // ----- Préférences globales -----
-  const toggleIn = (key, value) => {
-    const list = person[key];
-    update({ [key]: list.includes(value) ? list.filter((v) => v !== value) : [...list, value] });
-  };
-
   // ----- Génération -----
   const generate = async () => {
     setLoading(true);
@@ -208,9 +223,9 @@ export default function App() {
       if (!r.ok) throw new Error("Erreur serveur");
       const data = await r.json();
       setResult(data);
-      setEditing(null);
-      setStep(4);
+      setStep(3); // arrive directement sur la personnalisation
       setActive(0);
+      setEditing(null);
     } catch (e) {
       setError("Impossible de générer le planning. Réessaie dans un instant.");
     } finally {
@@ -219,130 +234,153 @@ export default function App() {
   };
 
   const next = () => {
-    if (step === 3) generate();
+    if (step === 2) generate();
     else setStep(step + 1);
   };
 
   const restart = () => {
     setResult(null);
-    setEditing(null);
     setStep(0);
     setActive(0);
-    setStyle(defaultStyle);
+    setEditing(null);
     setPeople(couple ? [emptyPerson("Toi"), emptyPerson("Partenaire")] : [emptyPerson("Toi")]);
   };
 
-  // ----- Édition des séances du résultat -----
-  const updateEvent = (planIndex, eventIndex, patch) => {
+  // ----- Édition d'un événement du résultat -----
+  const updateEvent = (planIdx, evIdx, patch) => {
     setResult((prev) => {
       if (!prev) return prev;
-      return {
-        ...prev,
-        plans: prev.plans.map((p, pi) =>
-          pi !== planIndex
-            ? p
-            : { ...p, events: p.events.map((e, ei) => (ei === eventIndex ? { ...e, ...patch } : e)) }
-        ),
-      };
+      const plans = prev.plans.map((p, pi) =>
+        pi !== planIdx
+          ? p
+          : { ...p, events: p.events.map((e, ei) => (ei === evIdx ? { ...e, ...patch } : e)) }
+      );
+      return { ...prev, plans };
     });
   };
 
-  const deleteEvent = (planIndex, eventIndex) => {
+  const deleteEvent = (planIdx, evIdx) => {
     setResult((prev) => {
       if (!prev) return prev;
-      return {
-        ...prev,
-        plans: prev.plans.map((p, pi) =>
-          pi !== planIndex ? p : { ...p, events: p.events.filter((_, ei) => ei !== eventIndex) }
-        ),
-      };
+      const plans = prev.plans.map((p, pi) =>
+        pi !== planIdx ? p : { ...p, events: p.events.filter((_, ei) => ei !== evIdx) }
+      );
+      return { ...prev, plans };
     });
     setEditing(null);
   };
 
-  // Renvoie la liste des avertissements pour une séance (jamais bloquant)
-  const warningsFor = (planIndex, eventIndex) => {
+  // Avertissements (rouge, sans blocage) pour un événement donné
+  const warningsFor = (planIdx, evIdx) => {
     if (!result) return [];
-    const plan = result.plans[planIndex];
-    const ev = plan?.events[eventIndex];
+    const plan = result.plans[planIdx];
+    const ev = plan?.events[evIdx];
     if (!ev) return [];
-    const warnings = [];
-    const s = toMin(ev.start);
-    const e = toMin(ev.end);
+    const warns = [];
 
-    if (e <= s) warnings.push("L'heure de fin est avant l'heure de début.");
+    if (toMin(ev.end) <= toMin(ev.start)) {
+      warns.push("L'heure de fin doit être après l'heure de début.");
+    }
 
-    plan.events.forEach((other, oi) => {
-      if (oi === eventIndex || other.day !== ev.day) return;
-      const os = toMin(other.start);
-      const oe = toMin(other.end);
-      if (s < oe && os < e) {
-        warnings.push(`Chevauche « ${other.title} » (${other.start} – ${other.end}).`);
-      } else {
-        const gap = s >= oe ? s - oe : os - e;
-        if (gap >= 0 && gap < 30) {
-          warnings.push(`Moins de 30 min avec « ${other.title} ».`);
-        }
-      }
-    });
-    return warnings;
+    const clash = plan.events.some(
+      (o, oi) => oi !== evIdx && o.day === ev.day && overlaps(o, ev)
+    );
+    if (clash) warns.push("Cette séance chevauche une autre activité.");
+
+    if (ev.origStart && Math.abs(toMin(ev.start) - toMin(ev.origStart)) > MAX_SHIFT_MIN) {
+      warns.push(`Décalage de plus de ${MAX_SHIFT_MIN} minutes par rapport au créneau proposé.`);
+    }
+    if (ev.origDay && ev.origDay !== ev.day) {
+      warns.push("Séance déplacée sur un autre jour que celui proposé.");
+    }
+    return warns;
   };
 
-  // ----- Images -----
-  const onBgFile = async (file) => {
+  const startEdit = (planIdx, evIdx) => {
+    const ev = result.plans[planIdx].events[evIdx];
+    // on mémorise le créneau d'origine une seule fois
+    if (!ev.origStart) {
+      updateEvent(planIdx, evIdx, { origStart: ev.start, origEnd: ev.end, origDay: ev.day });
+    }
+    setEditing({ plan: planIdx, index: evIdx });
+  };
+
+  // ----- Personnalisation -----
+  const setStyleKey = (patch) => setStyle((prev) => ({ ...prev, ...patch }));
+
+  const onBgImage = async (e) => {
+    const file = e.target.files?.[0];
     if (!file) return;
-    const url = await readFileAsDataUrl(file);
-    setStyle((prev) => ({ ...prev, bgImage: url }));
+    const url = await fileToDataUrl(file);
+    setStyleKey({ bgImage: url });
+    e.target.value = "";
   };
 
-  const onDayFile = async (day, file) => {
+  const onDayImage = async (day, e) => {
+    const file = e.target.files?.[0];
     if (!file) return;
-    const url = await readFileAsDataUrl(file);
-    setStyle((prev) => ({ ...prev, dayImages: { ...prev.dayImages, [day]: url } }));
+    const url = await fileToDataUrl(file);
+    setStyleKey({ dayImages: { ...style.dayImages, [day]: url } });
+    e.target.value = "";
   };
 
-  const clearDayImage = (day) =>
-    setStyle((prev) => {
-      const next = { ...prev.dayImages };
-      delete next[day];
-      return { ...prev, dayImages: next };
-    });
+  const removeDayImage = (day) => {
+    const copy = { ...style.dayImages };
+    delete copy[day];
+    setStyleKey({ dayImages: copy });
+  };
 
   // ----- Export -----
-  const captureCanvas = async () => {
+  const exportCanvas = async () => {
     if (!exportRef.current) return null;
-    return html2canvas(exportRef.current, { backgroundColor: "#ffffff", scale: 2, useCORS: true });
+    return html2canvas(exportRef.current, {
+      scale: 2,
+      backgroundColor: style.bgColor,
+      useCORS: true,
+    });
   };
 
-  const exportPng = async () => {
-    const canvas = await captureCanvas();
-    if (!canvas) return;
-    const link = document.createElement("a");
-    link.download = "planning.png";
-    link.href = canvas.toDataURL("image/png");
-    link.click();
+  const exportPNG = async () => {
+    setExporting(true);
+    try {
+      const canvas = await exportCanvas();
+      if (!canvas) return;
+      const a = document.createElement("a");
+      a.href = canvas.toDataURL("image/png");
+      a.download = "planning.png";
+      a.click();
+    } finally {
+      setExporting(false);
+    }
   };
 
-  const exportPdf = async () => {
-    const canvas = await captureCanvas();
-    if (!canvas) return;
-    const img = canvas.toDataURL("image/png");
-    const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-    const pageW = pdf.internal.pageSize.getWidth();
-    const pageH = pdf.internal.pageSize.getHeight();
-    const ratio = Math.min(pageW / canvas.width, pageH / canvas.height);
-    const w = canvas.width * ratio;
-    const h = canvas.height * ratio;
-    pdf.addImage(img, "PNG", (pageW - w) / 2, (pageH - h) / 2, w, h);
-    pdf.save("planning.pdf");
+  const exportPDF = async () => {
+    setExporting(true);
+    try {
+      const canvas = await exportCanvas();
+      if (!canvas) return;
+      const img = canvas.toDataURL("image/png");
+      const pdf = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+      const pw = pdf.internal.pageSize.getWidth();
+      const ph = pdf.internal.pageSize.getHeight();
+      const ratio = Math.min(pw / canvas.width, ph / canvas.height);
+      const w = canvas.width * ratio;
+      const h = canvas.height * ratio;
+      pdf.addImage(img, "PNG", (pw - w) / 2, (ph - h) / 2, w, h);
+      pdf.save("planning.png".replace(".png", ".pdf"));
+    } finally {
+      setExporting(false);
+    }
   };
 
-  // ----- Construction d'une journée (fusion "Ensemble") -----
+  const groups = groupFixed(person.fixed);
+
+  // ----- Construction de la semaine (réutilisée pour l'affichage) -----
   const buildDay = (d) => {
     const items = [];
     result.plans.forEach((p, pi) => {
       p.events.forEach((e, ei) => {
-        if (e.day === d) items.push({ ...e, owner: pi, ownerName: p.name, eventIndex: ei });
+        if (e.day === d) items.push({ ...e, owner: pi, ownerName: p.name, evIndex: ei });
       });
     });
 
@@ -373,7 +411,7 @@ export default function App() {
     return merged;
   };
 
-  const renderWeek = (editable) => (
+  const renderWeek = (interactive) => (
     <div className="week">
       {DAYS.map((d) => {
         const merged = buildDay(d);
@@ -388,7 +426,7 @@ export default function App() {
                   backgroundImage: `url(${dayImg})`,
                   backgroundSize: "cover",
                   backgroundPosition: "center",
-                  opacity: style.dayOpacity,
+                  opacity: style.dayImageOpacity,
                   pointerEvents: "none",
                 }}
               />
@@ -397,24 +435,28 @@ export default function App() {
               <h3>{d}</h3>
               {merged.length === 0 && <div className="rest">Libre</div>}
               {merged.map((e, i) => {
-                const c = e.together ? { bg: "#f5f0ff", border: "#7c3aed" } : COLORS[e.owner % COLORS.length];
-                const warns = editable && !e.fixed ? warningsFor(e.owner, e.eventIndex) : [];
-                const canEdit = editable && !e.fixed && !e.together;
+                const c = e.together
+                  ? { bg: "#f5f0ff", border: "#7c3aed" }
+                  : COLORS[e.owner] || COLORS[0];
+                const warns = interactive && !e.together ? warningsFor(e.owner, e.evIndex) : [];
+                const canEdit = interactive && !e.fixed && !e.together;
                 return (
                   <div
                     key={i}
                     className={canEdit ? "event editable" : "event"}
+                    onClick={canEdit ? () => startEdit(e.owner, e.evIndex) : undefined}
                     style={{
                       background: c.bg,
-                      borderLeft: `3px solid ${c.border}`,
+                      borderLeft: `3px solid ${warns.length ? "#dc2626" : c.border}`,
                       opacity: e.fixed ? 0.85 : 1,
                     }}
-                    onClick={() => canEdit && setEditing({ plan: e.owner, index: e.eventIndex })}
                   >
                     <strong>{e.title}</strong>
                     <span>{e.start} – {e.end}</span>
-                    {couple && <span className="owner">{e.together ? "Ensemble" : e.ownerName}</span>}
-                    {warns.length > 0 && <span className="warn-dot">⚠ À vérifier</span>}
+                    {couple && (
+                      <span className="owner">{e.together ? "Ensemble" : e.ownerName}</span>
+                    )}
+                    {warns.length > 0 && <span className="warn-dot">⚠ à vérifier</span>}
                   </div>
                 );
               })}
@@ -425,10 +467,10 @@ export default function App() {
     </div>
   );
 
+  // ----- Panneau d'édition d'un événement -----
   const renderEditor = () => {
     if (!editing || !result) return null;
-    const plan = result.plans[editing.plan];
-    const ev = plan?.events[editing.index];
+    const ev = result.plans[editing.plan]?.events[editing.index];
     if (!ev) return null;
     const warns = warningsFor(editing.plan, editing.index);
 
@@ -439,20 +481,16 @@ export default function App() {
           <button className="link" onClick={() => setEditing(null)}>Fermer</button>
         </div>
 
-        <label className="label">Jour</label>
-        <div className="chips">
-          {DAYS.map((d) => (
-            <button
-              key={d}
-              className={ev.day === d ? "chip on" : "chip"}
-              onClick={() => updateEvent(editing.plan, editing.index, { day: d })}
-            >
-              {SHORT[d]}
-            </button>
-          ))}
-        </div>
-
         <div className="row">
+          <label className="field">Jour
+            <select
+              className="input"
+              value={ev.day}
+              onChange={(e) => updateEvent(editing.plan, editing.index, { day: e.target.value })}
+            >
+              {DAYS.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </label>
           <label className="field">De
             <input
               type="time"
@@ -475,16 +513,14 @@ export default function App() {
         </div>
 
         {warns.map((w, i) => (
-          <p key={i} className="warn-text">⚠ {w}</p>
+          <p key={i} className="warn-text">{w}</p>
         ))}
-        {warns.length > 0 && (
-          <p className="hint">Ce n'est qu'un avertissement : tu peux garder cette séance telle quelle.</p>
-        )}
+        <p className="hint small">
+          Les avertissements ne bloquent rien : tu peux garder ta modification.
+        </p>
       </div>
     );
   };
-
-  const groups = groupFixed(person.fixed);
 
   return (
     <div className="app">
@@ -504,7 +540,7 @@ export default function App() {
         <div className="bar"><div className="fill" style={{ width: progress + "%" }} /></div>
       </div>
 
-      {couple && step < 4 && (
+      {couple && step < 3 && (
         <div className="tabs no-print">
           {people.map((p, i) => (
             <button key={i} className={i === active ? "tab on" : "tab"} onClick={() => setActive(i)}>
@@ -696,199 +732,197 @@ export default function App() {
               <div className="want-empty">Rien d'ajouté. Tu peux passer à l'étape suivante.</div>
             )}
           </div>
-        </section>
-      )}
-
-      {/* ---------- ÉTAPE 4 : PRÉFÉRENCES ---------- */}
-      {step === 3 && (
-        <section className="card">
-          <h2>Quels jours peut-on te proposer des séances ?</h2>
-          <p className="hint">Ces réglages s'appliquent à toutes tes activités (sauf si tu en as défini d'autres).</p>
-          <div className="chips">
-            {DAYS.map((d) => (
-              <button
-                key={d}
-                className={person.preferredDays.includes(d) ? "chip on" : "chip"}
-                onClick={() => toggleIn("preferredDays", d)}
-              >
-                {SHORT[d]}
-              </button>
-            ))}
-          </div>
-
-          <h2>À quel moment de la journée ?</h2>
-          <p className="hint">Tu peux en choisir plusieurs.</p>
-          <div className="chips">
-            {SLOTS.map((s) => (
-              <button
-                key={s.id}
-                className={person.preferredSlots.includes(s.id) ? "chip on" : "chip"}
-                onClick={() => toggleIn("preferredSlots", s.id)}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-
-          <h2>Entre quelles heures peut-on te proposer des séances ?</h2>
-          <p className="hint">Aucune séance ne sera placée en dehors de cette plage.</p>
-          <div className="row">
-            <label className="field">De
-              <input type="time" className="input" value={person.earliest} onChange={(e) => update({ earliest: e.target.value })} />
-            </label>
-            <label className="field">À
-              <input type="time" className="input" value={person.latest} onChange={(e) => update({ latest: e.target.value })} />
-            </label>
-          </div>
           {error && <p className="error">{error}</p>}
         </section>
       )}
 
-      {/* ---------- ÉTAPE 5 : RÉSULTAT + PERSONNALISATION ---------- */}
-      {step === 4 && !result && (
-        <section className="card">
-          <h2>Aucun planning pour l'instant</h2>
-          <p className="hint">Reviens en arrière et clique sur « Générer mon planning ».</p>
-          <div className="row end">
-            <button className="btn ghost" onClick={() => setStep(3)}>Retour</button>
-          </div>
-        </section>
-      )}
-
-      {step === 4 && result && (
-        <section className="card">
-          <h2>{couple ? "Votre planning" : `Planning de ${result.plans[0].name}`}</h2>
-
-          <p className="badge-ia no-print">
-            {result.ai ? "✨ Planning optimisé par l'IA" : "Planning calculé par l'algorithme"}
-          </p>
-
-          {couple && (
-            <div className="legend">
-              {result.plans.map((p, i) => (
-                <span key={i} className="legend-item">
-                  <span className="dot" style={{ background: COLORS[i % COLORS.length].border }} />
-                  {p.name}
-                </span>
-              ))}
-              <span className="legend-item">
-                <span className="dot" style={{ background: "#7c3aed" }} />
-                Ensemble
-              </span>
-            </div>
-          )}
-
-          {result.plans.map((p, i) => (
-            <p key={i} className="hint">
-              {p.name} : {p.sessionsAdded} séance(s) ajoutée(s) sur {p.sessionsTarget} prévue(s).
-              {p.restDay ? ` Repos : ${p.restDay}.` : ""}
-            </p>
-          ))}
-
-          <p className="hint no-print">Clique sur une séance ajoutée pour la déplacer, changer son horaire ou la supprimer.</p>
-
-          {/* Zone exportée (PNG / PDF / impression) */}
-          <div
-            ref={exportRef}
-            className="export-zone"
-            style={{ position: "relative", overflow: "hidden", padding: 12, background: "#fff" }}
-          >
-            {style.bgImage && (
-              <div
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  backgroundImage: `url(${style.bgImage})`,
-                  backgroundSize: "cover",
-                  backgroundPosition: "center",
-                  opacity: style.bgOpacity,
-                  pointerEvents: "none",
-                }}
-              />
-            )}
-            <div style={{ position: "relative" }}>{renderWeek(true)}</div>
-          </div>
-
-          {renderEditor()}
-
-          {couple && result.commonSlots?.length > 0 && (
-            <div className="common">
-              <h2>Créneaux libres en commun</h2>
-              <ul className="list">
-                {result.commonSlots.map((s, i) => (
-                  <li key={i}>
-                    <div><strong>{s.day}</strong><small>{s.start} – {s.end}</small></div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Personnalisation */}
-          <div className="no-print">
+      {/* ---------- ÉTAPE 4 : PERSONNALISATION + RÉSULTAT ---------- */}
+      {step === 3 && result && (
+        <>
+          {/* Panneau de personnalisation (une seule page pour les deux) */}
+          <section className="card no-print">
             <h2>Personnalisation</h2>
-            <p className="hint">Ajoute une image de fond et règle sa transparence. Tout est facultatif.</p>
+            <p className="hint">
+              {couple
+                ? "Un seul réglage pour le planning commun du couple."
+                : "Règle l'apparence de ton planning."}
+            </p>
 
-            <label className="label">Image de fond du planning</label>
+            <label className="label">Titre du planning</label>
+            <input
+              className="input full"
+              value={style.title}
+              onChange={(e) => setStyleKey({ title: e.target.value })}
+            />
+
+            <div className="row spaced">
+              <label className="field">Couleur de fond
+                <input
+                  type="color"
+                  className="color"
+                  value={style.bgColor}
+                  onChange={(e) => setStyleKey({ bgColor: e.target.value })}
+                />
+              </label>
+              <label className="field">Couleur d'accent
+                <input
+                  type="color"
+                  className="color"
+                  value={style.accent}
+                  onChange={(e) => setStyleKey({ accent: e.target.value })}
+                />
+              </label>
+            </div>
+
+            <label className="label">Image de fond</label>
             <div className="row">
-              <input type="file" accept="image/*" onChange={(e) => onBgFile(e.target.files?.[0])} />
+              <input type="file" accept="image/*" onChange={onBgImage} />
               {style.bgImage && (
-                <button className="link" onClick={() => setStyle({ ...style, bgImage: "" })}>Retirer</button>
+                <button className="link" onClick={() => setStyleKey({ bgImage: "" })}>
+                  Retirer l'image
+                </button>
               )}
             </div>
-            <label className="field spaced">
-              Opacité du fond : {Math.round(style.bgOpacity * 100)} %
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={style.bgOpacity}
-                onChange={(e) => setStyle({ ...style, bgOpacity: Number(e.target.value) })}
-              />
-            </label>
+            {style.bgImage && (
+              <label className="field slider">
+                Transparence de l'image : {Math.round(style.bgOpacity * 100)} %
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={style.bgOpacity}
+                  onChange={(e) => setStyleKey({ bgOpacity: Number(e.target.value) })}
+                />
+              </label>
+            )}
 
-            <label className="label spaced">Images par jour</label>
+            <label className="label">Images par jour <em>(optionnel)</em></label>
             <div className="day-images">
               {DAYS.map((d) => (
                 <div key={d} className="day-image-row">
                   <span>{SHORT[d]}</span>
-                  <input type="file" accept="image/*" onChange={(e) => onDayFile(d, e.target.files?.[0])} />
+                  <input type="file" accept="image/*" onChange={(e) => onDayImage(d, e)} />
                   {style.dayImages[d] && (
-                    <button className="link" onClick={() => clearDayImage(d)}>Retirer</button>
+                    <button className="link" onClick={() => removeDayImage(d)}>Retirer</button>
                   )}
                 </div>
               ))}
             </div>
-            <label className="field spaced">
-              Opacité des images de jour : {Math.round(style.dayOpacity * 100)} %
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={style.dayOpacity}
-                onChange={(e) => setStyle({ ...style, dayOpacity: Number(e.target.value) })}
-              />
-            </label>
-          </div>
+            {Object.keys(style.dayImages).length > 0 && (
+              <label className="field slider">
+                Transparence des images de jour : {Math.round(style.dayImageOpacity * 100)} %
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={style.dayImageOpacity}
+                  onChange={(e) => setStyleKey({ dayImageOpacity: Number(e.target.value) })}
+                />
+              </label>
+            )}
+          </section>
 
-          <div className="row no-print end">
-            <button className="btn ghost" onClick={restart}>Recommencer</button>
-            <button className="btn ghost" onClick={exportPng}>Export PNG</button>
-            <button className="btn ghost" onClick={exportPdf}>Export PDF</button>
-            <button className="btn" onClick={() => window.print()}>Imprimer</button>
-          </div>
-        </section>
+          {/* Planning (zone exportée) */}
+          <section className="card plan-card">
+            <div
+              ref={exportRef}
+              className="export-zone"
+              style={{ background: style.bgColor, position: "relative", overflow: "hidden" }}
+            >
+              {style.bgImage && (
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    backgroundImage: `url(${style.bgImage})`,
+                    backgroundSize: "cover",
+                    backgroundPosition: "center",
+                    opacity: style.bgOpacity,
+                    pointerEvents: "none",
+                  }}
+                />
+              )}
+
+              <div style={{ position: "relative", padding: 20 }}>
+                <h2 style={{ color: style.accent, marginTop: 0 }}>
+                  {style.title || (couple ? "Votre planning" : `Planning de ${result.plans[0].name}`)}
+                </h2>
+
+                <p className="badge-ia no-print">
+                  {result.ai
+                    ? "✨ Planning optimisé par l'IA"
+                    : "Planning calculé par l'algorithme"}
+                </p>
+
+                {couple && (
+                  <div className="legend">
+                    {result.plans.map((p, i) => (
+                      <span key={i} className="legend-item">
+                        <span className="dot" style={{ background: COLORS[i].border }} />
+                        {p.name}
+                      </span>
+                    ))}
+                    <span className="legend-item">
+                      <span className="dot" style={{ background: "#7c3aed" }} />
+                      Ensemble
+                    </span>
+                  </div>
+                )}
+
+                {result.plans.map((p, i) => (
+                  <p key={i} className="hint">
+                    {p.name} : {p.sessionsAdded} séance(s) ajoutée(s) sur {p.sessionsTarget} prévue(s).
+                    {p.restDay ? ` Repos : ${p.restDay}.` : ""}
+                  </p>
+                ))}
+
+                {renderWeek(!exporting)}
+
+                {couple && result.commonSlots?.length > 0 && (
+                  <div className="common">
+                    <h2>Créneaux libres en commun</h2>
+                    <ul className="list">
+                      {result.commonSlots.map((s, i) => (
+                        <li key={i}>
+                          <div><strong>{s.day}</strong><small>{s.start} – {s.end}</small></div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {renderEditor()}
+
+            <p className="hint small no-print">
+              Clique sur une séance ajoutée pour la modifier. Les séances que tu as déjà fixées ne se déplacent pas.
+            </p>
+
+            <div className="row no-print end">
+              <button className="btn ghost" onClick={restart}>Recommencer</button>
+              <button className="btn ghost" onClick={() => setStep(2)}>Modifier mes choix</button>
+              <button className="btn ghost" onClick={() => window.print()}>Imprimer</button>
+              <button className="btn ghost" disabled={exporting} onClick={exportPNG}>
+                {exporting ? "Export..." : "Export PNG"}
+              </button>
+              <button className="btn" disabled={exporting} onClick={exportPDF}>
+                {exporting ? "Export..." : "Export PDF"}
+              </button>
+            </div>
+          </section>
+        </>
       )}
 
-      {step < 4 && (
+      {step < 3 && (
         <footer className="nav no-print">
           <button className="btn ghost" disabled={step === 0} onClick={() => setStep(step - 1)}>
             Retour
           </button>
           <button className="btn" disabled={loading} onClick={next}>
-            {step === 3 ? (loading ? "Génération..." : "Générer mon planning") : "Suivant"}
+            {step === 2 ? (loading ? "Génération..." : "Générer mon planning") : "Suivant"}
           </button>
         </footer>
       )}
@@ -910,30 +944,32 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
 .tab { padding: 9px 18px; border: 1px solid #e3e3df; background: #fff; border-radius: 999px; cursor: pointer; font-size: 14px; color: #151515; font-family: inherit; }
 .tab.on { background: #151515; color: #fff; border-color: #151515; }
-.card { background: #fff; border: 1px solid #ebebe8; border-radius: 20px; padding: 36px; box-shadow: 0 1px 2px rgba(0,0,0,.03); }
+.card { background: #fff; border: 1px solid #ebebe8; border-radius: 20px; padding: 36px; box-shadow: 0 1px 2px rgba(0,0,0,.03); margin-bottom: 20px; }
 .card h2 { font-size: 18px; margin: 32px 0 6px; color: #151515; font-weight: 600; letter-spacing: -0.01em; }
 .card h2:first-child { margin-top: 0; }
 .hint { color: #6b6b6b; font-size: 14px; margin: 0 0 14px; line-height: 1.5; }
+.hint.small { font-size: 12px; margin-top: 10px; }
 .choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 12px; }
 .choice { text-align: left; padding: 18px; border: 1px solid #e3e3df; background: #fff; border-radius: 14px; cursor: pointer; display: flex; flex-direction: column; gap: 4px; color: #151515; font-family: inherit; font-size: 15px; transition: border-color .15s; }
 .choice span { font-size: 13px; color: #6b6b6b; }
 .choice:hover { border-color: #b9b9b3; }
 .choice.on { border-color: #14532d; background: #f2f8f4; }
 .form-block { display: flex; flex-direction: column; gap: 10px; background: #fafaf8; border: 1px solid #efefeb; border-radius: 16px; padding: 22px; margin-top: 8px; }
-.label { font-size: 14px; font-weight: 600; margin-top: 10px; }
+.label { font-size: 14px; font-weight: 600; margin-top: 10px; display: block; }
 .label:first-child { margin-top: 0; }
 .label em { font-weight: 400; color: #8a8a8a; font-style: normal; }
-.label.spaced { display: block; margin-top: 20px; }
 .full { width: 100%; }
 .shortcuts { display: flex; flex-wrap: wrap; gap: 14px; }
 .link-btn { background: none; border: none; padding: 0; color: #14532d; font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; text-decoration: underline; text-underline-offset: 3px; }
 .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.row.spaced { margin-top: 16px; margin-bottom: 6px; }
 .row.end { justify-content: flex-end; margin-top: 32px; }
 .grow { flex: 1; min-width: 160px; }
 .input { padding: 11px 14px; border: 1px solid #e0e0dc; border-radius: 12px; font-size: 15px; background: #fff; color: #151515; font-family: inherit; }
 .input:focus { outline: none; border-color: #14532d; box-shadow: 0 0 0 3px rgba(20,83,45,.1); }
 .field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #6b6b6b; }
-.field.spaced { margin-top: 14px; max-width: 320px; }
+.field.slider { margin-top: 10px; max-width: 360px; }
+.color { width: 64px; height: 38px; padding: 2px; border: 1px solid #e0e0dc; border-radius: 10px; background: #fff; cursor: pointer; }
 .btn { padding: 11px 22px; border-radius: 12px; border: 1px solid #14532d; background: #14532d; color: #fff; font-size: 15px; font-weight: 500; cursor: pointer; font-family: inherit; }
 .btn:hover:not(:disabled) { background: #0f4023; }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
@@ -969,23 +1005,4 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .badge-ia { display: inline-block; margin: 0 0 14px; padding: 5px 14px; border-radius: 999px; background: #f3eefe; color: #5b3fd1; font-size: 13px; font-weight: 600; }
 .common { margin-top: 32px; }
 .wants { display: flex; flex-direction: column; gap: 14px; margin-top: 20px; }
-.want-card { border: 1px solid #ececE8; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 10px; background: #fafaf8; }
-.want-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 4px; }
-.want-head div { display: flex; align-items: center; gap: 8px; }
-.want-empty { color: #a3a3a3; font-size: 14px; text-align: center; border: 1px dashed #e0e0dc; border-radius: 12px; padding: 14px; }
-.editor { margin-top: 20px; padding: 18px; border: 1px solid #e0e0dc; border-radius: 14px; background: #fafaf8; display: flex; flex-direction: column; gap: 12px; }
-.editor-head { display: flex; justify-content: space-between; align-items: center; }
-.warn-text { color: #dc2626; font-size: 13px; margin: 0; font-weight: 500; }
-.day-images { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
-.day-image-row { display: flex; align-items: center; gap: 12px; font-size: 13px; }
-.day-image-row span { width: 36px; font-weight: 600; }
-.export-zone { border-radius: 14px; }
-@media (max-width: 560px) { .card { padding: 22px; } .progress-labels { font-size: 11px; } }
-@media print {
-  .no-print { display: none !important; }
-  body { background: #fff; }
-  .app { padding: 0; max-width: none; }
-  .card { border: none; padding: 0; box-shadow: none; }
-  .week { grid-template-columns: repeat(7, 1fr); }
-}
-`;
+.want-card { border: 1px solid #ececE8; border-radius: 14px; padding: 18px; display: flex
