@@ -18,7 +18,7 @@ const SLOTS = [
   { id: "soir", label: "Soir" },
 ];
 
-const STEPS = ["Profil", "Ta semaine", "Objectifs"];
+const STEPS = ["Profil", "Ta semaine", "Objectifs", "Personnalisation"];
 
 const COLORS = [
   { bg: "#f2f8f4", border: "#14532d", text: "#14532d" },
@@ -75,8 +75,8 @@ const emptyPerson = (name) => ({
   level: "debutant",
   fixed: [],
   wants: [],
-  preferredDays: [],
-  preferredSlots: ["soir"],
+  preferredDays: [...DAYS],
+  preferredSlots: SLOTS.map((s) => s.id),
   maxSessions: 3,
   earliest: "06:00",
   latest: "22:00",
@@ -84,20 +84,31 @@ const emptyPerson = (name) => ({
 
 const defaultStyle = {
   title: "Mon planning",
-  bgColor: "#18132c",
+  bgColor: "#ffffff",
   bgImage: "",
   bgOpacity: 0.25,
   dayImages: {},
   dayImageOpacity: 0.3,
   accent: "#a78bfa",
-  textColor: "#f5f3ff",
-  stickers: [],
+  personColors: ["#60a5fa", "#a8795d"],
+  stickers: {},
+  theme: "dark-violet",
 };
 
 function loadSaved() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!parsed) return null;
+    const maxStep = STEPS.length - 1;
+    const restoredStep = parsed.step;
+    return {
+      ...parsed,
+      step: Number.isInteger(restoredStep) && restoredStep >= 0 && restoredStep <= maxStep ? restoredStep : 0,
+      people: Array.isArray(parsed.people)
+        ? parsed.people.map((p) => ({ ...p, preferredDays: [...DAYS], preferredSlots: SLOTS.map((s) => s.id) }))
+        : parsed.people,
+    };
   } catch {
     return null;
   }
@@ -117,43 +128,37 @@ export default function App() {
 
   const [couple, setCouple] = useState(saved?.couple ?? false);
   const [people, setPeople] = useState(saved?.people ?? [emptyPerson("Toi")]);
-  const [active, setActive] = useState(0);
-  const [step, setStep] = useState(saved?.result ? 4 : Math.min(saved?.step ?? 0, 2));
+  const [active, setActive] = useState(saved?.active ?? 0);
+  const [step, setStep] = useState(saved?.step ?? 0);
+  const [phase, setPhase] = useState(saved?.phase ?? (saved?.result ? "editor" : "questionnaire"));
   const [loading, setLoading] = useState(false);
-  const [cinematic, setCinematic] = useState(false);
-  const [editorTab, setEditorTab] = useState("colors");
   const [error, setError] = useState("");
   const [result, setResult] = useState(saved?.result ?? null);
   const [style, setStyle] = useState({ ...defaultStyle, ...(saved?.style ?? {}) });
   const [exporting, setExporting] = useState(false);
 
-  const [draft, setDraft] = useState({ title: "", days: [], start: "18:00", end: "19:00" });
-  const [wantDraft, setWantDraft] = useState("");
+  const [draft, setDraft] = useState(saved?.draft ?? { title: "", days: [], start: "18:00", end: "19:00" });
+  const [wantDraft, setWantDraft] = useState(saved?.wantDraft ?? "");
 
   // édition d'un événement du résultat : { plan, index } ou null
-  const [editing, setEditing] = useState(null);
+  const [editing, setEditing] = useState(saved?.editing ?? null);
 
   const exportRef = useRef(null);
 
   const person = people[active] || people[0];
-  const progress = Math.round((Math.min(step, 2) / 2) * 100);
-
-  useEffect(() => {
-    document.documentElement.classList.toggle("editor-active", step === 4);
-    return () => document.documentElement.classList.remove("editor-active");
-  }, [step]);
+  const progress = Math.round((Math.min(step, STEPS.length - 1) / (STEPS.length - 1)) * 100);
 
   // ----- Sauvegarde automatique -----
   useEffect(() => {
     try {
       localStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ couple, people, step, result, style })
+        JSON.stringify({ couple, people, active, step, phase, result, style, draft, wantDraft, editing })
       );
     } catch (e) {
       // quota dépassé (images trop lourdes) : on ignore sans casser l'app
     }
-  }, [couple, people, step, result, style]);
+  }, [couple, people, active, step, phase, result, style, draft, wantDraft, editing]);
 
   const update = (patch) =>
     setPeople((prev) => prev.map((p, i) => (i === active ? { ...p, ...patch } : p)));
@@ -209,12 +214,6 @@ export default function App() {
     });
   };
 
-  // Réglages internes conservés pour la génération (sans étape affichée).
-  const toggleIn = (key, value) => {
-    const list = person[key];
-    update({ [key]: list.includes(value) ? list.filter((v) => v !== value) : [...list, value] });
-  };
-
   // ----- Génération -----
   const generate = async () => {
     setLoading(true);
@@ -228,11 +227,9 @@ export default function App() {
       if (!r.ok) throw new Error("Erreur serveur");
       const data = await r.json();
       setResult(data);
-      setStep(4);
+      setStep(3); // arrive directement sur la personnalisation
       setActive(0);
       setEditing(null);
-      setCinematic(true);
-      window.setTimeout(() => setCinematic(false), 6000);
     } catch (e) {
       setError("Impossible de générer le planning. Réessaie dans un instant.");
     } finally {
@@ -246,11 +243,11 @@ export default function App() {
   };
 
   const restart = () => {
-    setResult(null);
-    setStep(0);
-    setActive(0);
-    setEditing(null);
-    setPeople(couple ? [emptyPerson("Toi"), emptyPerson("Partenaire")] : [emptyPerson("Toi")]);
+    try { localStorage.removeItem(STORAGE_KEY); } catch {}
+    setResult(null); setPhase("questionnaire"); setStep(0); setActive(0); setEditing(null);
+    setStyle({ ...defaultStyle });
+    setDraft({ title: "", days: [], start: "18:00", end: "19:00" }); setWantDraft("");
+    setPeople([emptyPerson("Toi")]); setCouple(false);
   };
 
   // ----- Édition d'un événement du résultat -----
@@ -315,23 +312,19 @@ export default function App() {
   // ----- Personnalisation -----
   const setStyleKey = (patch) => setStyle((prev) => ({ ...prev, ...patch }));
 
-  const applyTheme = (theme) => setStyleKey(theme);
-  const addSticker = (sticker) => setStyleKey({ stickers: [...(style.stickers || []), { emoji: sticker, x: 18 + ((style.stickers || []).length * 17) % 70, y: 16 + ((style.stickers || []).length * 23) % 65 }] });
-  const removeSticker = (index) => setStyleKey({ stickers: (style.stickers || []).filter((_, i) => i !== index) });
-
   const onBgImage = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const url = await fileToDataUrl(file);
-    setStyleKey({ bgImage: url });
+    try { const url = await fileToDataUrl(file); setStyleKey({ bgImage: url }); }
+    catch { setError("Image trop volumineuse ou quota de stockage dépassé."); }
     e.target.value = "";
   };
 
   const onDayImage = async (day, e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const url = await fileToDataUrl(file);
-    setStyleKey({ dayImages: { ...style.dayImages, [day]: url } });
+    try { const url = await fileToDataUrl(file); setStyleKey({ dayImages: { ...style.dayImages, [day]: url } }); }
+    catch { setError("Image trop volumineuse ou quota de stockage dépassé."); }
     e.target.value = "";
   };
 
@@ -387,95 +380,58 @@ export default function App() {
   const groups = groupFixed(person.fixed);
 
   // ----- Construction de la semaine (réutilisée pour l'affichage) -----
-  const buildDay = (d) => {
-    const items = [];
-    result.plans.forEach((p, pi) => {
-      p.events.forEach((e, ei) => {
-        if (e.day === d) items.push({ ...e, owner: pi, ownerName: p.name, evIndex: ei });
-      });
-    });
+  // ----- Grille horaire Google Agenda : un seul planning partagé -----
+  const allEvents = result?.plans?.flatMap((p, pi) => (p.events || []).map((e, ei) => ({ ...e, owner: pi, ownerName: p.name, evIndex: ei }))) || [];
+  const gridStart = allEvents.length ? Math.floor(Math.min(...allEvents.map(e => toMin(e.start))) / 60) * 60 : 8 * 60;
+  const gridEnd = allEvents.length ? Math.ceil(Math.max(...allEvents.map(e => toMin(e.end))) / 60) * 60 : 22 * 60;
+  const gridHeight = Math.max(480, ((gridEnd - gridStart) / 60) * 64);
 
-    const merged = [];
-    const used = new Set();
-    items.forEach((a, ai) => {
-      if (used.has(ai)) return;
-      const bi = couple
-        ? items.findIndex(
-            (b, j) =>
-              j > ai &&
-              !used.has(j) &&
-              b.owner !== a.owner &&
-              b.title.toLowerCase() === a.title.toLowerCase() &&
-              b.start === a.start &&
-              b.end === a.end
-          )
-        : -1;
-      if (bi >= 0) {
-        used.add(bi);
-        merged.push({ ...a, together: true });
-      } else {
-        merged.push(a);
-      }
-      used.add(ai);
+  const layoutDay = (day) => {
+    const events = allEvents.filter(e => e.day === day).sort((a,b) => toMin(a.start)-toMin(b.start) || toMin(a.end)-toMin(b.end));
+    const columns = [];
+    return events.map((event) => {
+      let col = 0;
+      while (columns[col]?.some(other => overlaps(other, event))) col++;
+      if (!columns[col]) columns[col] = [];
+      columns[col].push(event);
+      const group = events.filter(other => overlaps(other, event));
+      const maxCols = Math.max(1, columns.length, ...group.map(other => {
+        let c = 0; while (events.slice(0, events.indexOf(other)).filter(x => overlaps(x, other) && x._col === c).length) c++; return c + 1;
+      }));
+      event._col = col;
+      return { ...event, col, cols: Math.max(maxCols, columns.filter(Boolean).length) };
     });
-    merged.sort((x, y) => x.start.localeCompare(y.start));
-    return merged;
   };
 
   const renderWeek = (interactive) => (
-    <div className="week">
-      {DAYS.map((d) => {
-        const merged = buildDay(d);
-        const dayImg = style.dayImages[d];
-        return (
-          <div key={d} className="day" style={{ position: "relative", overflow: "hidden" }}>
-            {dayImg && (
-              <div
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  backgroundImage: `url(${dayImg})`,
-                  backgroundSize: "cover",
-                  backgroundPosition: "center",
-                  opacity: style.dayImageOpacity,
-                  pointerEvents: "none",
-                }}
-              />
-            )}
-            <div style={{ position: "relative" }}>
-              <h3>{d}</h3>
-              {merged.length === 0 && <div className="rest">Libre</div>}
-              {merged.map((e, i) => {
-                const c = e.together
-                  ? { bg: "#f5f0ff", border: "#7c3aed" }
-                  : COLORS[e.owner] || COLORS[0];
-                const warns = interactive && !e.together ? warningsFor(e.owner, e.evIndex) : [];
-                const canEdit = interactive && !e.fixed && !e.together;
-                return (
-                  <div
-                    key={i}
-                    className={(canEdit ? "event editable" : "event") + " event-reveal"}
-                    onClick={canEdit ? () => startEdit(e.owner, e.evIndex) : undefined}
-                    style={{
-                      background: c.bg,
-                      borderLeft: `3px solid ${warns.length ? "#dc2626" : c.border}`,
-                      opacity: e.fixed ? 0.85 : 1,
-                      animationDelay: `${i * 90}ms`,
-                    }}
-                  >
-                    <strong>{e.title}</strong>
-                    <span>{e.start} – {e.end}</span>
-                    {couple && (
-                      <span className="owner">{e.together ? "Ensemble" : e.ownerName}</span>
-                    )}
-                    {warns.length > 0 && <span className="warn-dot">⚠ à vérifier</span>}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })}
+    <div className="agenda-scroll">
+      <div className="agenda" style={{ "--agenda-height": `${gridHeight}px` }}>
+        <div className="time-axis" aria-hidden="true">
+          <div className="axis-spacer" />
+          {Array.from({ length: Math.floor((gridEnd-gridStart)/60)+1 }, (_, i) => <div className="time-label" key={i}>{String(Math.floor((gridStart+i*60)/60)).padStart(2,"0")}:00</div>)}
+        </div>
+        <div className="agenda-days">
+          {DAYS.map((d) => {
+            const dayImg = style.dayImages?.[d]; const laid = layoutDay(d);
+            return <div className="agenda-day" key={d}>
+              <div className="day-head">{SHORT[d]}</div>
+              <div className="day-canvas" style={{ backgroundImage: dayImg ? `linear-gradient(rgba(12,9,28,.62),rgba(12,9,28,.62)),url(${dayImg})` : undefined }}>
+                <div className="hour-lines">{Array.from({ length: Math.floor((gridEnd-gridStart)/60)+1 }, (_, i) => <div key={i} />)}</div>
+                {laid.map((e) => {
+                  const top = ((toMin(e.start)-gridStart)/(gridEnd-gridStart))*gridHeight;
+                  const height = Math.max(28, ((toMin(e.end)-toMin(e.start))/(gridEnd-gridStart))*gridHeight);
+                  const c = style.personColors?.[e.owner] || (e.owner === 1 ? "#a8795d" : "#60a5fa");
+                  const warns = interactive ? warningsFor(e.owner, e.evIndex) : [];
+                  const canEdit = interactive && !e.fixed;
+                  return <div key={`${e.owner}-${e.evIndex}`} className={`agenda-event ${canEdit ? "editable" : ""}`} onClick={canEdit ? () => startEdit(e.owner,e.evIndex) : undefined} style={{ top, height, left: `calc(${(e.col/e.cols)*100}% + 2px)`, width: `calc(${(100/e.cols)}% - 4px)`, background: `${c}dd`, borderColor: warns.length ? "#f87171" : c }}>
+                    <strong>{e.title}</strong><span>{e.start} – {e.end}</span>{couple && <small>{e.ownerName}</small>}{warns.length > 0 && <b className="warn-dot">⚠</b>}
+                  </div>;
+                })}
+              </div>
+            </div>;
+          })}
+        </div>
+      </div>
     </div>
   );
 
@@ -538,25 +494,12 @@ export default function App() {
     <div className="app">
       <style>{css}</style>
 
-      {cinematic && (
-        <div className="cinematic no-print" role="status" aria-live="polite">
-          <div className="cinematic-orbit"><div className="cinematic-core">✦</div></div>
-          <div className="cinematic-track"><span /></div>
-          <div className="cinematic-copy">
-            <p className="cine-line line-1">🔍 Analyse de ta semaine…</p>
-            <p className="cine-line line-2">📅 Placement des séances…</p>
-            <p className="cine-line line-3">✨ Ajout des touches finales…</p>
-            <p className="cine-line line-4">✅ C'est prêt !</p>
-          </div>
-        </div>
-      )}
-
-      <header className={step === 4 ? "top no-print editor-hidden" : "top no-print"}>
+      <header className="top no-print">
         <h1>Mon planning</h1>
         <p>Construis une semaine d'entraînement adaptée à ton niveau.</p>
       </header>
 
-      <div className={step === 4 ? "progress no-print editor-hidden" : "progress no-print"}>
+      <div className="progress no-print">
         <div className="progress-labels">
           {STEPS.map((s, i) => (
             <span key={s} className={i <= step ? "on" : ""}>{s}</span>
@@ -565,7 +508,7 @@ export default function App() {
         <div className="bar"><div className="fill" style={{ width: progress + "%" }} /></div>
       </div>
 
-      {couple && step < 4 && (
+      {couple && step < 3 && (
         <div className="tabs no-print">
           {people.map((p, i) => (
             <button key={i} className={i === active ? "tab on" : "tab"} onClick={() => setActive(i)}>
@@ -757,82 +700,105 @@ export default function App() {
               <div className="want-empty">Rien d'ajouté. Tu peux passer à l'étape suivante.</div>
             )}
           </div>
-        </section>
-      )}
-
-      {/* ---------- ÉTAPE 4 : PRÉFÉRENCES ---------- */}
-      {false && (
-        <section className="card">
-          <h2>Quels jours peut-on te proposer des séances ?</h2>
-          <p className="hint">Ces réglages s'appliquent à toutes tes activités (sauf si tu en as défini d'autres).</p>
-          <div className="chips">
-            {DAYS.map((d) => (
-              <button
-                key={d}
-                className={person.preferredDays.includes(d) ? "chip on" : "chip"}
-                onClick={() => toggleIn("preferredDays", d)}
-              >
-                {SHORT[d]}
-              </button>
-            ))}
-          </div>
-
-          <h2>À quel moment de la journée ?</h2>
-          <p className="hint">Tu peux en choisir plusieurs.</p>
-          <div className="chips">
-            {SLOTS.map((s) => (
-              <button
-                key={s.id}
-                className={person.preferredSlots.includes(s.id) ? "chip on" : "chip"}
-                onClick={() => toggleIn("preferredSlots", s.id)}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-
-          <h2>Entre quelles heures peut-on te proposer des séances ?</h2>
-          <p className="hint">Aucune séance ne sera placée en dehors de cette plage.</p>
-          <div className="row">
-            <label className="field">De
-              <input type="time" className="input" value={person.earliest} onChange={(e) => update({ earliest: e.target.value })} />
-            </label>
-            <label className="field">À
-              <input type="time" className="input" value={person.latest} onChange={(e) => update({ latest: e.target.value })} />
-            </label>
-          </div>
           {error && <p className="error">{error}</p>}
         </section>
       )}
 
-      {/* ---------- ÉTAPE 5 : PERSONNALISATION + RÉSULTAT ---------- */}
-      {step === 4 && result && (
+      {/* ---------- ÉTAPE 4 : PERSONNALISATION + RÉSULTAT ---------- */}
+      {step === 3 && result && (
         <>
-          <div className="editor-workspace">
-          <div className="editor-layout no-print">
-            <aside className="editor-sidebar">
-              <div className="editor-brand"><span>✦</span><div><strong>Atelier</strong><small>Ton planning, ta signature</small></div></div>
-              <div className="editor-tabs">
-                <button className={editorTab === "colors" ? "editor-tab active" : "editor-tab"} onClick={() => setEditorTab("colors")}>🎨 <span>Couleurs</span></button>
-                <button className={editorTab === "stickers" ? "editor-tab active" : "editor-tab"} onClick={() => setEditorTab("stickers")}>✨ <span>Stickers</span></button>
-                <button className={editorTab === "edit" ? "editor-tab active" : "editor-tab"} onClick={() => setEditorTab("edit")}>✏️ <span>Modification</span></button>
-              </div>
-            </aside>
-            <section className="editor-panel">
-              <div className="editor-panel-head"><div><span className="eyebrow">PERSONNALISATION</span><h2>{editorTab === "colors" ? "Donne-lui ta couleur" : editorTab === "stickers" ? "Ajoute ton énergie" : "Ajuste tes séances"}</h2></div><span className="editor-status">● Sauvegardé</span></div>
-              {editorTab === "colors" && <div className="control-grid">
-                <label className="label">Titre du planning<input className="input full" value={style.title} onChange={(e) => setStyleKey({ title: e.target.value })} /></label>
-                <div className="color-grid"><label className="field">Fond<input type="color" className="color" value={style.bgColor} onChange={(e) => setStyleKey({ bgColor: e.target.value })} /></label><label className="field">Accent<input type="color" className="color" value={style.accent} onChange={(e) => setStyleKey({ accent: e.target.value })} /></label><label className="field">Texte<input type="color" className="color" value={style.textColor || "#151515"} onChange={(e) => setStyleKey({ textColor: e.target.value })} /></label></div>
-                <div><label className="label">Thèmes prêts à l'emploi</label><div className="theme-row"><button className="theme theme-aurora" onClick={() => applyTheme({ bgColor: "#101026", accent: "#a78bfa", textColor: "#f5f3ff" })}>Aurora</button><button className="theme theme-sunset" onClick={() => applyTheme({ bgColor: "#fff7ed", accent: "#ea580c", textColor: "#431407" })}>Sunset</button><button className="theme theme-forest" onClick={() => applyTheme({ bgColor: "#f2f8f4", accent: "#14532d", textColor: "#163324" })}>Forêt</button></div></div>
-                <label className="label">Arrière-plan <input type="file" accept="image/*" onChange={onBgImage} /></label>{style.bgImage && <><button className="link" onClick={() => setStyleKey({ bgImage: "" })}>Retirer l'image</button><label className="field slider">Transparence : {Math.round(style.bgOpacity * 100)} %<input type="range" min="0" max="1" step="0.05" value={style.bgOpacity} onChange={(e) => setStyleKey({ bgOpacity: Number(e.target.value) })} /></label></>}
-              </div>}
-              {editorTab === "stickers" && <div className="control-grid"><p className="hint">Choisis un signe distinctif, puis ajoute des images par jour comme arrière-plan ou logo.</p><div className="sticker-palette">{["🔥","⚡","🏋️","🥊","🏃","🧘","🚴","🏆","💪","🌙"].map((x) => <button key={x} className="sticker-btn" onClick={() => addSticker(x)}>{x}</button>)}</div><label className="label">Images / logos par jour</label><div className="day-images">{DAYS.map((d) => <div key={d} className="day-image-row"><span>{SHORT[d]}</span><input type="file" accept="image/*" onChange={(e) => onDayImage(d, e)} />{style.dayImages[d] && <button className="link" onClick={() => removeDayImage(d)}>Retirer</button>}</div>)}</div>{Object.keys(style.dayImages).length > 0 && <label className="field slider">Transparence : {Math.round(style.dayImageOpacity * 100)} %<input type="range" min="0" max="1" step="0.05" value={style.dayImageOpacity} onChange={(e) => setStyleKey({ dayImageOpacity: Number(e.target.value) })} /></label>}<div className="sticker-list">{(style.stickers || []).map((s, i) => <button key={i} className="sticker-chip" onClick={() => removeSticker(i)}>{s.emoji} <small>retirer</small></button>)}</div></div>}
-              {editorTab === "edit" && <div className="control-grid"><p className="hint">Clique sur une séance ajoutée dans le planning pour modifier son jour, ses horaires ou la supprimer.</p>{renderEditor()}<p className="warn-text editor-warning">⚠ Les séances ajoutées peuvent être décalées de 30 minutes maximum. Les avertissements restent sans blocage.</p></div>}
-            </section>
-          </div>
+          {/* Panneau de personnalisation (une seule page pour les deux) */}
+          <section className="card no-print customization-card">
+            <h2>Personnalisation</h2>
+            <p className="hint">
+              {couple
+                ? "Un seul réglage pour le planning commun du couple."
+                : "Règle l'apparence de ton planning."}
+            </p>
+
+            <label className="label">Titre du planning</label>
+            <input
+              className="input full"
+              value={style.title}
+              onChange={(e) => setStyleKey({ title: e.target.value })}
+            />
+
+            <div className="row spaced">
+              <label className="field">Couleur de fond
+                <input
+                  type="color"
+                  className="color"
+                  value={style.bgColor}
+                  onChange={(e) => setStyleKey({ bgColor: e.target.value })}
+                />
+              </label>
+              <label className="field">Couleur d'accent
+                <input
+                  type="color"
+                  className="color"
+                  value={style.accent}
+                  onChange={(e) => setStyleKey({ accent: e.target.value })}
+                />
+              </label>
+            </div>
+
+            {couple && <>
+              <h2 className="workshop-title">Donne-lui ta couleur</h2>
+              <div className="person-colors">{people.map((p, i) => <label className="field" key={i}>{p.name || `Personne ${i+1}`}<input type="color" className="color" value={style.personColors?.[i] || (i ? "#a8795d" : "#60a5fa")} onChange={e => setStyleKey({ personColors: people.map((_, j) => style.personColors?.[j] || (j ? "#a8795d" : "#60a5fa")).map((c,j) => j === i ? e.target.value : c) })} /></label>)}</div>
+            </>}
+
+            <label className="label">Image de fond</label>
+            <div className="row">
+              <input type="file" accept="image/*" onChange={onBgImage} />
+              {style.bgImage && (
+                <button className="link" onClick={() => setStyleKey({ bgImage: "" })}>
+                  Retirer l'image
+                </button>
+              )}
+            </div>
+            {style.bgImage && (
+              <label className="field slider">
+                Transparence de l'image : {Math.round(style.bgOpacity * 100)} %
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={style.bgOpacity}
+                  onChange={(e) => setStyleKey({ bgOpacity: Number(e.target.value) })}
+                />
+              </label>
+            )}
+
+            <label className="label">Images par jour <em>(optionnel)</em></label>
+            <div className="day-images">
+              {DAYS.map((d) => (
+                <div key={d} className="day-image-row">
+                  <span>{SHORT[d]}</span>
+                  <input type="file" accept="image/*" onChange={(e) => onDayImage(d, e)} />
+                  {style.dayImages[d] && (
+                    <button className="link" onClick={() => removeDayImage(d)}>Retirer</button>
+                  )}
+                </div>
+              ))}
+            </div>
+            {Object.keys(style.dayImages).length > 0 && (
+              <label className="field slider">
+                Transparence des images de jour : {Math.round(style.dayImageOpacity * 100)} %
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={style.dayImageOpacity}
+                  onChange={(e) => setStyleKey({ dayImageOpacity: Number(e.target.value) })}
+                />
+              </label>
+            )}
+          </section>
 
           {/* Planning (zone exportée) */}
-          <section className="card plan-card">
+          <section className="card plan-card planning-card">
             <div
               ref={exportRef}
               className="export-zone"
@@ -852,8 +818,7 @@ export default function App() {
                 />
               )}
 
-              {(style.stickers || []).map((sticker, i) => <span key={i} className="floating-sticker" style={{ left: sticker.x + "%", top: sticker.y + "%" }}>{sticker.emoji}</span>)}
-              <div style={{ position: "relative", padding: 20, color: style.textColor || "#151515" }}>
+              <div style={{ position: "relative", padding: 20 }}>
                 <h2 style={{ color: style.accent, marginTop: 0 }}>
                   {style.title || (couple ? "Votre planning" : `Planning de ${result.plans[0].name}`)}
                 </h2>
@@ -868,12 +833,12 @@ export default function App() {
                   <div className="legend">
                     {result.plans.map((p, i) => (
                       <span key={i} className="legend-item">
-                        <span className="dot" style={{ background: COLORS[i].border }} />
+                        <span className="dot" style={{ background: style.personColors?.[i] || (i ? "#a8795d" : "#60a5fa") }} />
                         {p.name}
                       </span>
                     ))}
                     <span className="legend-item">
-                      <span className="dot" style={{ background: "#7c3aed" }} />
+                      <span className="dot" style={{ background: style.accent }} />
                       Ensemble
                     </span>
                   </div>
@@ -911,8 +876,8 @@ export default function App() {
 
             <div className="row no-print end">
               <button className="btn ghost" onClick={restart}>Recommencer</button>
-              <button className="btn ghost" onClick={() => setStep(2)}>← Modifier mes choix</button>
-              <button className="btn ghost" onClick={() => window.print()}>🖨️ Imprimer / Télécharger</button>
+              <button className="btn ghost" onClick={() => setStep(2)}>Modifier mes choix</button>
+              <button className="btn ghost" onClick={() => window.print()}>Imprimer</button>
               <button className="btn ghost" disabled={exporting} onClick={exportPNG}>
                 {exporting ? "Export..." : "Export PNG"}
               </button>
@@ -921,17 +886,16 @@ export default function App() {
               </button>
             </div>
           </section>
-          </div>
         </>
       )}
 
-      {step < 4 && (
+      {step < 3 && (
         <footer className="nav no-print">
           <button className="btn ghost" disabled={step === 0} onClick={() => setStep(step - 1)}>
             Retour
           </button>
           <button className="btn" disabled={loading} onClick={next}>
-            {step === 2 ? (loading ? "Génération..." : "Générer le planning") : "Suivant"}
+            {step === 2 ? (loading ? "Génération..." : "Générer mon planning") : "Suivant"}
           </button>
         </footer>
       )}
@@ -940,117 +904,20 @@ export default function App() {
 }
 
 const css = `
+:root { color-scheme: dark; }
 * { box-sizing: border-box; }
-body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
-.app { max-width: 820px; margin: 0 auto; padding: 48px 20px 80px; font-family: Inter, system-ui, -apple-system, sans-serif; color: #151515; }
-.top h1 { font-size: 32px; margin: 0 0 8px; letter-spacing: -0.03em; font-weight: 700; }
-.top p { margin: 0; color: #6b6b6b; font-size: 16px; }
-.progress { margin: 36px 0 24px; }
-.progress-labels { display: flex; justify-content: space-between; font-size: 13px; color: #a3a3a3; margin-bottom: 10px; }
-.progress-labels .on { color: #151515; font-weight: 600; }
-.bar { height: 3px; background: #e7e7e4; border-radius: 4px; overflow: hidden; }
-.fill { height: 100%; background: #14532d; transition: width .35s ease; }
-.tabs { display: flex; gap: 8px; margin-bottom: 16px; }
-.tab { padding: 9px 18px; border: 1px solid #e3e3df; background: #fff; border-radius: 999px; cursor: pointer; font-size: 14px; color: #151515; font-family: inherit; }
-.tab.on { background: #151515; color: #fff; border-color: #151515; }
-.card { background: #fff; border: 1px solid #ebebe8; border-radius: 20px; padding: 36px; box-shadow: 0 1px 2px rgba(0,0,0,.03); margin-bottom: 20px; }
-.card h2 { font-size: 18px; margin: 32px 0 6px; color: #151515; font-weight: 600; letter-spacing: -0.01em; }
-.card h2:first-child { margin-top: 0; }
-.hint { color: #6b6b6b; font-size: 14px; margin: 0 0 14px; line-height: 1.5; }
-.hint.small { font-size: 12px; margin-top: 10px; }
-.choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 12px; }
-.choice { text-align: left; padding: 18px; border: 1px solid #e3e3df; background: #fff; border-radius: 14px; cursor: pointer; display: flex; flex-direction: column; gap: 4px; color: #151515; font-family: inherit; font-size: 15px; transition: border-color .15s; }
-.choice span { font-size: 13px; color: #6b6b6b; }
-.choice:hover { border-color: #b9b9b3; }
-.choice.on { border-color: #14532d; background: #f2f8f4; }
-.form-block { display: flex; flex-direction: column; gap: 10px; background: #fafaf8; border: 1px solid #efefeb; border-radius: 16px; padding: 22px; margin-top: 8px; }
-.label { font-size: 14px; font-weight: 600; margin-top: 10px; display: block; }
-.label:first-child { margin-top: 0; }
-.label em { font-weight: 400; color: #8a8a8a; font-style: normal; }
-.full { width: 100%; }
-.shortcuts { display: flex; flex-wrap: wrap; gap: 14px; }
-.link-btn { background: none; border: none; padding: 0; color: #14532d; font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; text-decoration: underline; text-underline-offset: 3px; }
-.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
-.row.spaced { margin-top: 16px; margin-bottom: 6px; }
-.row.end { justify-content: flex-end; margin-top: 32px; }
-.grow { flex: 1; min-width: 160px; }
-.input { padding: 11px 14px; border: 1px solid #e0e0dc; border-radius: 12px; font-size: 15px; background: #fff; color: #151515; font-family: inherit; }
-.input:focus { outline: none; border-color: #14532d; box-shadow: 0 0 0 3px rgba(20,83,45,.1); }
-.field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #6b6b6b; }
-.field.slider { margin-top: 10px; max-width: 360px; }
-.color { width: 64px; height: 38px; padding: 2px; border: 1px solid #e0e0dc; border-radius: 10px; background: #fff; cursor: pointer; }
-.btn { padding: 11px 22px; border-radius: 12px; border: 1px solid #14532d; background: #14532d; color: #fff; font-size: 15px; font-weight: 500; cursor: pointer; font-family: inherit; }
-.btn:hover:not(:disabled) { background: #0f4023; }
-.btn:disabled { opacity: .4; cursor: not-allowed; }
-.btn.ghost { background: #fff; color: #151515; border-color: #e0e0dc; }
-.btn.ghost:hover:not(:disabled) { background: #f5f5f3; }
-.link { background: none; border: none; color: #9a9a9a; cursor: pointer; font-size: 13px; font-family: inherit; }
-.link:hover { color: #b91c1c; }
-.list { list-style: none; padding: 0; margin: 20px 0 0; display: flex; flex-direction: column; gap: 8px; }
-.list li { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border: 1px solid #ececE8; border-radius: 12px; background: #fff; }
-.list li div { display: flex; flex-direction: column; gap: 3px; }
-.list small { color: #6b6b6b; font-size: 13px; }
-.list .empty { color: #a3a3a3; font-size: 14px; justify-content: center; border-style: dashed; background: transparent; }
-.tag { display: inline-block; margin-left: 8px; padding: 2px 9px; font-size: 11px; background: #f0f0ed; border-radius: 999px; color: #555; font-weight: 500; }
-.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
-.chip { padding: 9px 18px; border: 1px solid #e0e0dc; background: #fff; border-radius: 999px; cursor: pointer; font-size: 14px; color: #151515; font-family: inherit; transition: all .15s; }
-.chip:hover { border-color: #b9b9b3; }
-.chip.on { background: #14532d; color: #fff; border-color: #14532d; }
-.nav { display: flex; justify-content: space-between; margin-top: 24px; }
-.error { color: #b91c1c; font-size: 14px; margin-top: 18px; }
-.week { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-top: 8px; }
-.day { border: 1px solid #ececE8; border-radius: 12px; padding: 12px; min-height: 120px; background: rgba(255,255,255,.6); }
-.day h3 { font-size: 13px; margin: 0 0 8px; color: #151515; font-weight: 600; }
-.rest { font-size: 12px; color: #b0b0b0; }
-.event { padding: 8px; border-radius: 8px; margin-bottom: 6px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
-.event.editable { cursor: pointer; }
-.event.editable:hover { box-shadow: 0 0 0 2px rgba(20,83,45,.25); }
-.event span { color: #6b6b6b; }
-.warn-dot { color: #dc2626 !important; font-weight: 600; font-size: 11px; }
-.legend { display: flex; flex-wrap: wrap; gap: 16px; margin: 0 0 14px; }
-.legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #444; }
-.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-.owner { font-size: 11px; font-weight: 600; }
-.badge-ia { display: inline-block; margin: 0 0 14px; padding: 5px 14px; border-radius: 999px; background: #f3eefe; color: #5b3fd1; font-size: 13px; font-weight: 600; }
-.common { margin-top: 32px; }
-.wants { display: flex; flex-direction: column; gap: 14px; margin-top: 20px; }
-.want-card { border: 1px solid #ececE8; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
-.editor-hidden { display: none !important; }
-.cinematic { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; align-content: center; gap: 24px; background: radial-gradient(circle at 50% 42%, #39206f 0, #171329 28%, #090812 72%); color: white; overflow: hidden; }
-.cinematic::before { content: ""; position: absolute; inset: 0; opacity: .22; background-image: linear-gradient(rgba(167,139,250,.12) 1px, transparent 1px), linear-gradient(90deg, rgba(167,139,250,.12) 1px, transparent 1px); background-size: 48px 48px; transform: perspective(500px) rotateX(55deg) scale(1.6); transform-origin: bottom; }
-.cinematic-orbit { position: relative; z-index: 1; width: 132px; height: 132px; border-radius: 50%; border: 1px solid rgba(216,180,254,.35); box-shadow: 0 0 30px #8b5cf6, inset 0 0 30px rgba(139,92,246,.5); animation: orbitPulse 1.5s ease-in-out infinite; display: grid; place-items: center; }
-.cinematic-orbit::after { content: ""; position: absolute; inset: -12px; border: 2px solid transparent; border-top-color: #f0abfc; border-right-color: #818cf8; border-radius: 50%; animation: spin 1.1s linear infinite; }
-.cinematic-core { font-size: 42px; color: #e9d5ff; text-shadow: 0 0 24px #c084fc; animation: coreGlow 1s ease-in-out infinite alternate; }
-.cinematic-track { z-index: 1; width: min(360px, 70vw); height: 4px; border-radius: 9px; background: rgba(255,255,255,.14); overflow: hidden; }
-.cinematic-track span { display: block; height: 100%; width: 0; background: linear-gradient(90deg,#f0abfc,#8b5cf6,#67e8f9); animation: fillCine 6s linear forwards; }
-.cinematic-copy { z-index: 1; position: relative; min-height: 30px; text-align: center; }
-.cine-line { position: absolute; width: 100%; margin: 0; opacity: 0; font-size: clamp(16px, 2.5vw, 22px); font-weight: 600; letter-spacing: .01em; white-space: nowrap; }
-.line-1 { animation: cineText 6s 0s both; color: #c4b5fd; }.line-2 { animation: cineText 6s 1.5s both; color: #93c5fd; }.line-3 { animation: cineText 6s 3s both; color: #f0abfc; }.line-4 { animation: cineText 6s 4.5s both; color: #86efac; }
-.editor-layout { display: grid; grid-template-columns: 190px 1fr; gap: 20px; margin-bottom: 22px; padding: 18px; border-radius: 24px; background: linear-gradient(135deg,#141126,#1d1534); color: #f5f3ff; box-shadow: 0 24px 70px rgba(53,27,105,.22); }
-.editor-sidebar { display: flex; flex-direction: column; }.editor-brand { display:flex; gap:10px; align-items:center; margin-bottom: 28px; }.editor-brand > span { display:grid; place-items:center; width:34px; height:34px; border-radius:11px; background:linear-gradient(135deg,#c084fc,#7c3aed); box-shadow:0 0 20px #7c3aed; }.editor-brand strong,.editor-brand small { display:block; }.editor-brand small { color:#aaa3c9; font-size:10px; margin-top:3px; }.editor-tabs { display:flex; flex-direction:column; gap:6px; }.editor-tab { border:0; background:transparent; color:#aaa3c9; text-align:left; padding:12px 10px; border-radius:12px; font:inherit; cursor:pointer; display:flex; gap:10px; align-items:center; }.editor-tab.active { color:#fff; background:rgba(167,139,250,.18); box-shadow:inset 3px 0 #c084fc; }.editor-panel { min-width:0; background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.1); border-radius:18px; padding:22px; }.editor-panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:20px; }.editor-panel h2 { color:#fff; margin:5px 0 0; }.eyebrow { color:#c084fc; font-size:10px; font-weight:700; letter-spacing:.16em; }.editor-status { color:#86efac; font-size:11px; }.control-grid { display:grid; gap:16px; }.editor-panel .label { color:#dcd6f2; }.editor-panel .input,.editor-panel .color { background:rgba(8,6,20,.45); border-color:#493c6b; color:#fff; }.editor-panel .hint { color:#b9b1d0; }.color-grid { display:flex; gap:24px; }.theme-row { display:flex; gap:8px; flex-wrap:wrap; }.theme { border:1px solid #5b4a83; color:#fff; border-radius:10px; padding:10px 14px; cursor:pointer; background:#26203d; }.theme-aurora { background:linear-gradient(135deg,#16122e,#6d28d9); }.theme-sunset { background:linear-gradient(135deg,#7c2d12,#fb923c); }.theme-forest { background:linear-gradient(135deg,#14532d,#65a30d); }.sticker-palette { display:flex; flex-wrap:wrap; gap:8px; }.sticker-btn { border:1px solid #58477c; background:#211a3a; border-radius:12px; font-size:24px; width:46px; height:46px; cursor:pointer; transition:transform .15s; }.sticker-btn:hover { transform:translateY(-3px) rotate(-4deg); }.sticker-list { display:flex; gap:8px; flex-wrap:wrap; }.sticker-chip { border:1px solid #66538d; background:#2a2147; color:#fff; border-radius:99px; padding:6px 10px; cursor:pointer; }.sticker-chip small { color:#b8add4; }.editor-warning { color:#ff7b87 !important; border-left:2px solid #ef4444; padding-left:10px; }.floating-sticker { position:absolute; z-index:2; font-size:28px; filter:drop-shadow(0 4px 8px rgba(0,0,0,.18)); transform:rotate(-8deg); }.event-reveal { animation: eventReveal .55s cubic-bezier(.2,.8,.2,1) both; }
-@keyframes spin { to { transform:rotate(360deg); } } @keyframes orbitPulse { 50% { transform:scale(1.05); box-shadow:0 0 55px #a78bfa, inset 0 0 36px rgba(139,92,246,.7); } } @keyframes coreGlow { to { transform:scale(1.14) rotate(8deg); } } @keyframes fillCine { to { width:100%; } } @keyframes cineText { 0%,18% { opacity:0; transform:translateY(10px); } 24%,44% { opacity:1; transform:translateY(0); } 52%,100% { opacity:0; transform:translateY(-10px); } } @keyframes eventReveal { from { opacity:0; transform:scale(.84) translateY(8px); } to { opacity:1; transform:scale(1) translateY(0); } }
-@media (max-width: 680px) { .editor-layout { display:block; padding:12px; }.editor-sidebar { display:block; }.editor-brand { margin:4px 4px 12px; }.editor-tabs { flex-direction:row; gap:4px; }.editor-tab { flex:1; justify-content:center; padding:10px 4px; font-size:12px; }.editor-tab span { display:none; }.editor-panel { margin-top:10px; padding:16px; }.editor-panel-head { margin-bottom:14px; }.color-grid { gap:14px; }.app { padding:26px 12px 54px; } }
-/* Mode éditeur : atelier + aperçu côte à côte, sans surface blanche. */
-html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff; }
-.editor-workspace { display:grid; grid-template-columns:190px minmax(280px,1fr) minmax(390px,1.35fr); gap:20px; align-items:start; }
-.editor-workspace .editor-layout { display:contents; }
-.editor-workspace .editor-sidebar { grid-column:1; position:sticky; top:20px; padding:18px 0; }
-.editor-workspace .editor-panel { grid-column:2; position:sticky; top:20px; }
-.editor-workspace .plan-card { grid-column:3; position:sticky; top:20px; margin:0; background:#141026; border-color:#30234d; color:#eee9ff; }
-.editor-workspace .plan-card .export-zone { background:#18132c !important; }
-.editor-workspace .plan-card .day { background:#211a38; border-color:#40335f; }
-.editor-workspace .plan-card .day h3, .editor-workspace .plan-card .legend-item { color:#eee9ff; }
-.editor-workspace .plan-card .event { background:#2a2148 !important; color:#f5f3ff; }
-.editor-workspace .plan-card .event span, .editor-workspace .plan-card .hint, .editor-workspace .plan-card .rest { color:#c8bfdf; }
-.editor-workspace .plan-card .badge-ia { background:#2d2250; color:#d8b4fe; }
-.editor-workspace .plan-card .list li { background:#211a38; border-color:#40335f; color:#f5f3ff; }
-.editor-workspace .plan-card .list small { color:#c8bfdf; }
-.editor-workspace .row.end .btn, .editor-workspace .plan-card .btn.ghost { background:#211a38; border-color:#6d4db0; color:#eee9ff; }
-.editor-workspace input[type=file] { color:#d8cef0; background:#17112c; border:1px solid #493c6b; border-radius:10px; padding:5px; }
-.editor-workspace input[type=file]::file-selector-button { border:0; border-radius:8px; padding:8px 12px; margin-right:8px; background:#7c3aed; color:#fff; cursor:pointer; font:inherit; }
-@media (max-width: 1050px) { .editor-workspace { grid-template-columns:180px minmax(260px,1fr) minmax(320px,1fr); gap:12px; } }
-@media (max-width: 760px) { .editor-workspace { display:block; } .editor-workspace .editor-sidebar, .editor-workspace .editor-panel, .editor-workspace .plan-card { position:static; } .editor-workspace .editor-layout { display:block; } .editor-workspace .plan-card { margin-top:14px; } }
-
-@media print { .editor-layout, .no-print { display:none !important; } .plan-card { border:0; box-shadow:none; } }
-
+html, body, #root { min-height: 100%; width: 100%; margin: 0; background: #090713; }
+body { color: #eeeaff; -webkit-font-smoothing: antialiased; }
+.app { width: 100%; min-height: 100vh; margin: 0; padding: 32px clamp(18px,3vw,48px) 72px; font-family: ui-sans-serif, system-ui, sans-serif; color: #eeeaff; background: radial-gradient(circle at 85% -10%, #33205e 0, transparent 34%), #090713; }
+.top, .progress, .tabs { max-width: 1500px; margin-left: auto; margin-right: auto; }
+.top h1 { font-size: clamp(28px,4vw,42px); margin: 0 0 6px; letter-spacing: -.04em; }
+.top p, .hint { color: #aba4c1; }
+.progress { margin-top: 28px; margin-bottom: 22px; }.progress-labels { display:flex;justify-content:space-between;font-size:12px;color:#766d91;margin-bottom:8px }.progress-labels .on{color:#e9ddff;font-weight:700}.bar{height:3px;background:#29213d;border-radius:4px;overflow:hidden}.fill{height:100%;background:#9b7bea;transition:width .35s ease}
+.tabs { display:flex; gap:8px; margin-bottom:16px }.tab { padding:9px 18px; border:1px solid #3b3152; background:#171126; color:#dcd1f5; border-radius:999px; cursor:pointer }.tab.on{background:#8b5cf6;color:white;border-color:#a78bfa}
+.card { background: rgba(22,16,39,.92); border:1px solid #332747; border-radius:18px; padding:clamp(20px,3vw,34px); box-shadow:0 18px 50px rgba(0,0,0,.22); margin:0 auto 18px; max-width:1500px }.card h2{font-size:18px;margin:26px 0 6px;color:#f4efff}.card h2:first-child{margin-top:0}.hint{font-size:14px;margin:0 0 14px;line-height:1.5}.hint.small{font-size:12px;margin-top:10px}.choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px}.choice{padding:18px;border:1px solid #3b3152;background:#18122a;border-radius:14px;color:#eeeaff;text-align:left;cursor:pointer}.choice span{font-size:13px;color:#a49bb9}.choice.on{border-color:#a78bfa;background:#271747}.form-block,.want-card{background:#130e23;border:1px solid #302443;border-radius:14px;padding:18px}.label{font-size:13px;font-weight:700;margin-top:10px;display:block}.label em{font-weight:400;color:#817795;font-style:normal}.input,.color,input[type=file],select{box-sizing:border-box;max-width:100%;padding:10px 12px;border:1px solid #44355c;border-radius:10px;font-size:14px;background:#0f0b1b;color:#f2ecff;font-family:inherit}.full{width:100%}.row{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}.field{display:flex;flex-direction:column;gap:6px;font-size:12px;color:#aaa0bc;min-width:0}.color{width:56px;height:36px;padding:2px}.btn{padding:10px 18px;border-radius:10px;border:1px solid #8b5cf6;background:#7c3aed;color:white;cursor:pointer;font-weight:700}.btn.ghost{background:#171126;color:#ddd2f2;border-color:#493964}.btn:disabled{opacity:.45}.link,.link-btn{background:none;border:0;color:#b9a5e9;cursor:pointer}.chips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:8px}.chip{padding:8px 15px;border:1px solid #44355c;background:#171126;color:#ddd2f2;border-radius:999px;cursor:pointer}.chip.on{background:#7c3aed;border-color:#a78bfa;color:#fff}.list{list-style:none;padding:0;margin:20px 0 0;display:flex;flex-direction:column;gap:8px}.list li{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border:1px solid #36294c;border-radius:10px;background:#130e23}.tag{display:inline-block;margin-left:7px;padding:2px 8px;font-size:11px;background:#302047;border-radius:99px;color:#c7b8e9}.nav{display:flex;justify-content:space-between;max-width:1500px;margin:20px auto}.error,.warn-text{color:#fb7185}.customization-card{position:sticky;top:18px;max-width:none}.workshop-title{padding:10px 0 0;line-height:1.25}.person-colors{display:flex;flex-wrap:wrap;gap:18px}.day-images{display:flex;flex-direction:column;gap:8px;margin-top:8px}.day-image-row{display:flex;align-items:center;gap:8px;font-size:12px;min-width:0}.day-image-row input{flex:1}.plan-card{max-width:none}.export-zone{border-radius:14px;background:#110c20!important}.legend{display:flex;flex-wrap:wrap;gap:16px;margin:0 0 14px}.legend-item{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#cfc5df}.dot{width:10px;height:10px;border-radius:50%;display:inline-block}.badge-ia{display:inline-block;margin:0 0 14px;padding:5px 12px;border-radius:999px;background:#2d1e53;color:#d9c5ff;font-size:12px}.agenda-scroll{overflow-x:auto;padding-bottom:4px}.agenda{display:grid;grid-template-columns:58px minmax(770px,1fr);min-width:830px}.time-axis{padding-top:34px;background:#110c20}.axis-spacer{height:0}.time-label{height:64px;padding:5px 7px 0 0;text-align:right;color:#847996;font-size:10px}.agenda-days{display:grid;grid-template-columns:repeat(7,minmax(110px,1fr));gap:1px;background:#3a2c51}.agenda-day{min-width:110px;background:#120d20}.day-head{height:34px;padding:9px 8px;color:#dcd0ef;font-weight:700;font-size:12px;text-align:center;background:#1a1230;border-bottom:1px solid #45345d}.day-canvas{height:var(--agenda-height);position:relative;background-size:cover;background-position:center}.hour-lines{position:absolute;inset:0;pointer-events:none}.hour-lines div{height:64px;border-bottom:1px solid rgba(153,130,190,.16)}.agenda-event{position:absolute;z-index:2;overflow:hidden;padding:6px 7px;border:1px solid;border-left-width:3px;border-radius:7px;color:#fff;box-shadow:0 4px 10px rgba(0,0,0,.2);font-size:11px;line-height:1.25}.agenda-event strong,.agenda-event span,.agenda-event small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.agenda-event span,.agenda-event small{color:#f1eaff;font-size:10px}.agenda-event.editable{cursor:pointer}.agenda-event.editable:hover{filter:brightness(1.15);z-index:5}.warn-dot{color:#fecaca!important;position:absolute;right:4px;top:3px}.editor{margin-top:18px;padding:16px;border:1px solid #3c2c53;border-radius:12px;background:#130e23;display:flex;flex-direction:column;gap:10px}.editor-head{display:flex;justify-content:space-between;align-items:center}
+@media (min-width:900px){.app:has(.planning-card){display:grid;grid-template-columns:minmax(230px,280px) minmax(0,1fr);gap:18px;align-items:start}.app:has(.planning-card)>.top,.app:has(.planning-card)>.progress,.app:has(.planning-card)>.tabs{grid-column:1/-1}.app:has(.planning-card)>.customization-card{grid-column:1;grid-row:4}.app:has(.planning-card)>.planning-card{grid-column:2;grid-row:4}.app:has(.planning-card)>.nav{grid-column:1/-1}}
+@media (max-width:899px){.customization-card{position:static}.app:has(.planning-card){padding-bottom:88px}.app:has(.planning-card)>.customization-card{order:1}.app:has(.planning-card)>.planning-card{order:2}.app:has(.planning-card)>.tabs{position:fixed;bottom:12px;left:12px;right:12px;z-index:20;justify-content:center;margin:0;padding:8px;background:#171126dd;border:1px solid #493964;border-radius:14px}.agenda{min-width:830px}}
+@media print{.no-print{display:none!important}body{background:#fff}.app{padding:0;background:#fff}.card{border:0;box-shadow:none;padding:0}.agenda-scroll{overflow:visible}.agenda{min-width:0}.agenda-days{grid-template-columns:repeat(7,1fr)}
+}
 `;
+
