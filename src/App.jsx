@@ -18,11 +18,11 @@ const SLOTS = [
   { id: "soir", label: "Soir" },
 ];
 
-const STEPS = ["Profil", "Ta semaine", "Objectifs", "Préférences", "Personnalisation"];
+const STEPS = ["Profil", "Ta semaine", "Objectifs"];
 
 const COLORS = [
-  { bg: "#dbeafe", border: "#2563eb", text: "#1d4ed8" },
-  { bg: "#ead8c8", border: "#7c3f20", text: "#7c3f20" },
+  { bg: "#f2f8f4", border: "#14532d", text: "#14532d" },
+  { bg: "#eff6ff", border: "#1d4ed8", text: "#1d4ed8" },
 ];
 
 const CATEGORIES = [
@@ -84,12 +84,14 @@ const emptyPerson = (name) => ({
 
 const defaultStyle = {
   title: "Mon planning",
-  bgColor: "#ffffff",
+  bgColor: "#18132c",
   bgImage: "",
   bgOpacity: 0.25,
   dayImages: {},
   dayImageOpacity: 0.3,
-  accent: "#14532d",
+  accent: "#a78bfa",
+  textColor: "#f5f3ff",
+  stickers: [],
 };
 
 function loadSaved() {
@@ -111,42 +113,47 @@ function fileToDataUrl(file) {
 }
 
 export default function App() {
-  const [saved] = useState(() => loadSaved());
+  const saved = useRef(loadSaved()).current;
 
   const [couple, setCouple] = useState(saved?.couple ?? false);
   const [people, setPeople] = useState(saved?.people ?? [emptyPerson("Toi")]);
-  const [active, setActive] = useState(saved?.active ?? 0);
-  const [step, setStep] = useState(saved?.step ?? 0);
+  const [active, setActive] = useState(0);
+  const [step, setStep] = useState(saved?.result ? 4 : Math.min(saved?.step ?? 0, 2));
   const [loading, setLoading] = useState(false);
+  const [cinematic, setCinematic] = useState(false);
+  const [editorTab, setEditorTab] = useState("colors");
   const [error, setError] = useState("");
   const [result, setResult] = useState(saved?.result ?? null);
   const [style, setStyle] = useState({ ...defaultStyle, ...(saved?.style ?? {}) });
   const [exporting, setExporting] = useState(false);
 
-  const [draft, setDraft] = useState(saved?.draft ?? { title: "", days: [], start: "18:00", end: "19:00" });
-  const [wantDraft, setWantDraft] = useState(saved?.wantDraft ?? "");
+  const [draft, setDraft] = useState({ title: "", days: [], start: "18:00", end: "19:00" });
+  const [wantDraft, setWantDraft] = useState("");
 
   // édition d'un événement du résultat : { plan, index } ou null
-  const [editing, setEditing] = useState(saved?.editing ?? null);
+  const [editing, setEditing] = useState(null);
 
   const exportRef = useRef(null);
-  const skipNextSave = useRef(false);
 
   const person = people[active] || people[0];
-  const progress = Math.round((Math.min(step, 4) / 4) * 100);
+  const progress = Math.round((Math.min(step, 2) / 2) * 100);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("editor-active", step === 4);
+    return () => document.documentElement.classList.remove("editor-active");
+  }, [step]);
 
   // ----- Sauvegarde automatique -----
   useEffect(() => {
-    if (skipNextSave.current) { skipNextSave.current = false; return; }
     try {
       localStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ couple, people, active, step, result, style, draft, wantDraft, editing })
+        JSON.stringify({ couple, people, step, result, style })
       );
     } catch (e) {
       // quota dépassé (images trop lourdes) : on ignore sans casser l'app
     }
-  }, [couple, people, active, step, result, style, draft, wantDraft, editing]);
+  }, [couple, people, step, result, style]);
 
   const update = (patch) =>
     setPeople((prev) => prev.map((p, i) => (i === active ? { ...p, ...patch } : p)));
@@ -202,7 +209,7 @@ export default function App() {
     });
   };
 
-  // ----- Préférences globales -----
+  // Réglages internes conservés pour la génération (sans étape affichée).
   const toggleIn = (key, value) => {
     const list = person[key];
     update({ [key]: list.includes(value) ? list.filter((v) => v !== value) : [...list, value] });
@@ -221,9 +228,11 @@ export default function App() {
       if (!r.ok) throw new Error("Erreur serveur");
       const data = await r.json();
       setResult(data);
-      setStep(4); // arrive directement sur la personnalisation
+      setStep(4);
       setActive(0);
       setEditing(null);
+      setCinematic(true);
+      window.setTimeout(() => setCinematic(false), 6000);
     } catch (e) {
       setError("Impossible de générer le planning. Réessaie dans un instant.");
     } finally {
@@ -232,13 +241,11 @@ export default function App() {
   };
 
   const next = () => {
-    if (step === 3) generate();
+    if (step === 2) generate();
     else setStep(step + 1);
   };
 
   const restart = () => {
-    skipNextSave.current = true;
-    try { localStorage.removeItem(STORAGE_KEY); } catch (e) { /* stockage indisponible */ }
     setResult(null);
     setStep(0);
     setActive(0);
@@ -307,6 +314,10 @@ export default function App() {
 
   // ----- Personnalisation -----
   const setStyleKey = (patch) => setStyle((prev) => ({ ...prev, ...patch }));
+
+  const applyTheme = (theme) => setStyleKey(theme);
+  const addSticker = (sticker) => setStyleKey({ stickers: [...(style.stickers || []), { emoji: sticker, x: 18 + ((style.stickers || []).length * 17) % 70, y: 16 + ((style.stickers || []).length * 23) % 65 }] });
+  const removeSticker = (index) => setStyleKey({ stickers: (style.stickers || []).filter((_, i) => i !== index) });
 
   const onBgImage = async (e) => {
     const file = e.target.files?.[0];
@@ -411,84 +422,62 @@ export default function App() {
     return merged;
   };
 
-  const renderWeek = (interactive) => {
-    const allEvents = [];
-    DAYS.forEach((day) => {
-      const dayItems = result.plans.flatMap((p, pi) =>
-        p.events.filter((e) => e.day === day).map((e, ei) => ({ ...e, owner: pi, ownerName: p.name, evIndex: ei }))
-      );
-      const used = new Set();
-      dayItems.forEach((a, ai) => {
-        if (used.has(ai)) return;
-        const bi = couple ? dayItems.findIndex((b, j) => j > ai && !used.has(j) && b.owner !== a.owner && b.title.toLowerCase() === a.title.toLowerCase() && b.start === a.start && b.end === a.end) : -1;
-        if (bi >= 0) { used.add(bi); allEvents.push({ ...a, together: true }); }
-        else allEvents.push(a);
-        used.add(ai);
-      });
-    });
-    const minActivity = allEvents.reduce((min, e) => Math.min(min, toMin(e.start)), Infinity);
-    const maxActivity = allEvents.reduce((max, e) => Math.max(max, toMin(e.end)), -Infinity);
-    const rangeStart = Number.isFinite(minActivity) ? Math.floor(minActivity / 60) * 60 : 7 * 60;
-    const rangeEnd = Number.isFinite(maxActivity) ? Math.ceil(maxActivity / 60) * 60 : 18 * 60;
-    const hourHeight = 72;
-    const rangeMinutes = Math.max(60, rangeEnd - rangeStart);
-    const gridHeight = (rangeMinutes / 60) * hourHeight;
-    const formatHour = (minutes) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:00`;
-    const layoutDay = (day) => {
-      const items = allEvents.filter((e) => e.day === day).sort((a, b) => toMin(a.start) - toMin(b.start));
-      const columns = [];
-      items.forEach((item) => {
-        let col = columns.findIndex((last) => !overlaps(last, item));
-        if (col < 0) { col = columns.length; columns.push(item); }
-        else columns[col] = item;
-        item._col = col;
-      });
-      const count = Math.max(columns.length, 1);
-      return items.map((e) => ({ ...e, width: 100 / count, left: (e._col * 100) / count }));
-    };
-    const hours = [];
-    for (let m = rangeStart; m <= rangeEnd; m += 60) hours.push(m);
-
-    return (
-      <div className="schedule-scroll">
-        <div className="schedule-grid" style={{ minWidth: 920 }}>
-          <div className="schedule-corner" />
-          {DAYS.map((d) => <div key={d} className="schedule-day-head">{SHORT[d]}</div>)}
-          <div className="schedule-hours" style={{ height: gridHeight }}>
-            {hours.map((m) => <span key={m} style={{ top: ((m - rangeStart) / 60) * hourHeight }}>{formatHour(m)}</span>)}
+  const renderWeek = (interactive) => (
+    <div className="week">
+      {DAYS.map((d) => {
+        const merged = buildDay(d);
+        const dayImg = style.dayImages[d];
+        return (
+          <div key={d} className="day" style={{ position: "relative", overflow: "hidden" }}>
+            {dayImg && (
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  backgroundImage: `url(${dayImg})`,
+                  backgroundSize: "cover",
+                  backgroundPosition: "center",
+                  opacity: style.dayImageOpacity,
+                  pointerEvents: "none",
+                }}
+              />
+            )}
+            <div style={{ position: "relative" }}>
+              <h3>{d}</h3>
+              {merged.length === 0 && <div className="rest">Libre</div>}
+              {merged.map((e, i) => {
+                const c = e.together
+                  ? { bg: "#f5f0ff", border: "#7c3aed" }
+                  : COLORS[e.owner] || COLORS[0];
+                const warns = interactive && !e.together ? warningsFor(e.owner, e.evIndex) : [];
+                const canEdit = interactive && !e.fixed && !e.together;
+                return (
+                  <div
+                    key={i}
+                    className={(canEdit ? "event editable" : "event") + " event-reveal"}
+                    onClick={canEdit ? () => startEdit(e.owner, e.evIndex) : undefined}
+                    style={{
+                      background: c.bg,
+                      borderLeft: `3px solid ${warns.length ? "#dc2626" : c.border}`,
+                      opacity: e.fixed ? 0.85 : 1,
+                      animationDelay: `${i * 90}ms`,
+                    }}
+                  >
+                    <strong>{e.title}</strong>
+                    <span>{e.start} – {e.end}</span>
+                    {couple && (
+                      <span className="owner">{e.together ? "Ensemble" : e.ownerName}</span>
+                    )}
+                    {warns.length > 0 && <span className="warn-dot">⚠ à vérifier</span>}
+                  </div>
+                );
+              })}
+            </div>
           </div>
-          {DAYS.map((d) => {
-            const dayImg = style.dayImages[d];
-            const events = layoutDay(d);
-            return (
-              <div key={d} className="schedule-day" style={{ height: gridHeight }}>
-                {dayImg && <div className="schedule-day-image" style={{ backgroundImage: `url(${dayImg})`, opacity: style.dayImageOpacity }} />}
-                {hours.slice(0, -1).map((m) => <div key={m} className="schedule-line" style={{ top: ((m - rangeStart) / 60) * hourHeight }} />)}
-                {events.map((e, i) => {
-                  const c = e.together
-                    ? { bg: "#eee4ff", border: "#7c3aed" }
-                    : COLORS[e.owner] || COLORS[0];
-                  const warns = interactive && !e.together ? warningsFor(e.owner, e.evIndex) : [];
-                  const canEdit = interactive && !e.fixed && !e.together;
-                  const top = ((toMin(e.start) - rangeStart) / 60) * hourHeight;
-                  const height = Math.max(28, ((toMin(e.end) - toMin(e.start)) / 60) * hourHeight);
-                  return (
-                    <div key={i} className={canEdit ? "schedule-event editable" : "schedule-event"}
-                      onClick={canEdit ? () => startEdit(e.owner, e.evIndex) : undefined}
-                      style={{ top, height, left: `calc(${e.left}% + 3px)`, width: `calc(${e.width}% - 6px)`, background: c.bg, borderLeft: `3px solid ${warns.length ? "#dc2626" : c.border}`, opacity: e.fixed ? 0.85 : 1 }}>
-                      <strong>{e.title}</strong><span>{e.start} – {e.end}</span>
-                      {couple && <span className="owner">{e.together ? "Ensemble" : e.ownerName}</span>}
-                      {warns.length > 0 && <span className="warn-dot">⚠ à vérifier</span>}
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  };
+        );
+      })}
+    </div>
+  );
 
   // ----- Panneau d'édition d'un événement -----
   const renderEditor = () => {
@@ -549,12 +538,25 @@ export default function App() {
     <div className="app">
       <style>{css}</style>
 
-      <header className="top no-print">
+      {cinematic && (
+        <div className="cinematic no-print" role="status" aria-live="polite">
+          <div className="cinematic-orbit"><div className="cinematic-core">✦</div></div>
+          <div className="cinematic-track"><span /></div>
+          <div className="cinematic-copy">
+            <p className="cine-line line-1">🔍 Analyse de ta semaine…</p>
+            <p className="cine-line line-2">📅 Placement des séances…</p>
+            <p className="cine-line line-3">✨ Ajout des touches finales…</p>
+            <p className="cine-line line-4">✅ C'est prêt !</p>
+          </div>
+        </div>
+      )}
+
+      <header className={step === 4 ? "top no-print editor-hidden" : "top no-print"}>
         <h1>Mon planning</h1>
         <p>Construis une semaine d'entraînement adaptée à ton niveau.</p>
       </header>
 
-      <div className="progress no-print">
+      <div className={step === 4 ? "progress no-print editor-hidden" : "progress no-print"}>
         <div className="progress-labels">
           {STEPS.map((s, i) => (
             <span key={s} className={i <= step ? "on" : ""}>{s}</span>
@@ -759,7 +761,7 @@ export default function App() {
       )}
 
       {/* ---------- ÉTAPE 4 : PRÉFÉRENCES ---------- */}
-      {step === 3 && (
+      {false && (
         <section className="card">
           <h2>Quels jours peut-on te proposer des séances ?</h2>
           <p className="hint">Ces réglages s'appliquent à toutes tes activités (sauf si tu en as défini d'autres).</p>
@@ -806,90 +808,28 @@ export default function App() {
       {/* ---------- ÉTAPE 5 : PERSONNALISATION + RÉSULTAT ---------- */}
       {step === 4 && result && (
         <>
-          {/* Panneau de personnalisation (une seule page pour les deux) */}
-          <section className="card no-print">
-            <h2>Personnalisation</h2>
-            <p className="hint">
-              {couple
-                ? "Un seul réglage pour le planning commun du couple."
-                : "Règle l'apparence de ton planning."}
-            </p>
-
-            <label className="label">Titre du planning</label>
-            <input
-              className="input full"
-              value={style.title}
-              onChange={(e) => setStyleKey({ title: e.target.value })}
-            />
-
-            <div className="row spaced">
-              <label className="field">Couleur de fond
-                <input
-                  type="color"
-                  className="color"
-                  value={style.bgColor}
-                  onChange={(e) => setStyleKey({ bgColor: e.target.value })}
-                />
-              </label>
-              <label className="field">Couleur d'accent
-                <input
-                  type="color"
-                  className="color"
-                  value={style.accent}
-                  onChange={(e) => setStyleKey({ accent: e.target.value })}
-                />
-              </label>
-            </div>
-
-            <label className="label">Image de fond</label>
-            <div className="row">
-              <input type="file" accept="image/*" onChange={onBgImage} />
-              {style.bgImage && (
-                <button className="link" onClick={() => setStyleKey({ bgImage: "" })}>
-                  Retirer l'image
-                </button>
-              )}
-            </div>
-            {style.bgImage && (
-              <label className="field slider">
-                Transparence de l'image : {Math.round(style.bgOpacity * 100)} %
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={style.bgOpacity}
-                  onChange={(e) => setStyleKey({ bgOpacity: Number(e.target.value) })}
-                />
-              </label>
-            )}
-
-            <label className="label">Images par jour <em>(optionnel)</em></label>
-            <div className="day-images">
-              {DAYS.map((d) => (
-                <div key={d} className="day-image-row">
-                  <span>{SHORT[d]}</span>
-                  <input type="file" accept="image/*" onChange={(e) => onDayImage(d, e)} />
-                  {style.dayImages[d] && (
-                    <button className="link" onClick={() => removeDayImage(d)}>Retirer</button>
-                  )}
-                </div>
-              ))}
-            </div>
-            {Object.keys(style.dayImages).length > 0 && (
-              <label className="field slider">
-                Transparence des images de jour : {Math.round(style.dayImageOpacity * 100)} %
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={style.dayImageOpacity}
-                  onChange={(e) => setStyleKey({ dayImageOpacity: Number(e.target.value) })}
-                />
-              </label>
-            )}
-          </section>
+          <div className="editor-workspace">
+          <div className="editor-layout no-print">
+            <aside className="editor-sidebar">
+              <div className="editor-brand"><span>✦</span><div><strong>Atelier</strong><small>Ton planning, ta signature</small></div></div>
+              <div className="editor-tabs">
+                <button className={editorTab === "colors" ? "editor-tab active" : "editor-tab"} onClick={() => setEditorTab("colors")}>🎨 <span>Couleurs</span></button>
+                <button className={editorTab === "stickers" ? "editor-tab active" : "editor-tab"} onClick={() => setEditorTab("stickers")}>✨ <span>Stickers</span></button>
+                <button className={editorTab === "edit" ? "editor-tab active" : "editor-tab"} onClick={() => setEditorTab("edit")}>✏️ <span>Modification</span></button>
+              </div>
+            </aside>
+            <section className="editor-panel">
+              <div className="editor-panel-head"><div><span className="eyebrow">PERSONNALISATION</span><h2>{editorTab === "colors" ? "Donne-lui ta couleur" : editorTab === "stickers" ? "Ajoute ton énergie" : "Ajuste tes séances"}</h2></div><span className="editor-status">● Sauvegardé</span></div>
+              {editorTab === "colors" && <div className="control-grid">
+                <label className="label">Titre du planning<input className="input full" value={style.title} onChange={(e) => setStyleKey({ title: e.target.value })} /></label>
+                <div className="color-grid"><label className="field">Fond<input type="color" className="color" value={style.bgColor} onChange={(e) => setStyleKey({ bgColor: e.target.value })} /></label><label className="field">Accent<input type="color" className="color" value={style.accent} onChange={(e) => setStyleKey({ accent: e.target.value })} /></label><label className="field">Texte<input type="color" className="color" value={style.textColor || "#151515"} onChange={(e) => setStyleKey({ textColor: e.target.value })} /></label></div>
+                <div><label className="label">Thèmes prêts à l'emploi</label><div className="theme-row"><button className="theme theme-aurora" onClick={() => applyTheme({ bgColor: "#101026", accent: "#a78bfa", textColor: "#f5f3ff" })}>Aurora</button><button className="theme theme-sunset" onClick={() => applyTheme({ bgColor: "#fff7ed", accent: "#ea580c", textColor: "#431407" })}>Sunset</button><button className="theme theme-forest" onClick={() => applyTheme({ bgColor: "#f2f8f4", accent: "#14532d", textColor: "#163324" })}>Forêt</button></div></div>
+                <label className="label">Arrière-plan <input type="file" accept="image/*" onChange={onBgImage} /></label>{style.bgImage && <><button className="link" onClick={() => setStyleKey({ bgImage: "" })}>Retirer l'image</button><label className="field slider">Transparence : {Math.round(style.bgOpacity * 100)} %<input type="range" min="0" max="1" step="0.05" value={style.bgOpacity} onChange={(e) => setStyleKey({ bgOpacity: Number(e.target.value) })} /></label></>}
+              </div>}
+              {editorTab === "stickers" && <div className="control-grid"><p className="hint">Choisis un signe distinctif, puis ajoute des images par jour comme arrière-plan ou logo.</p><div className="sticker-palette">{["🔥","⚡","🏋️","🥊","🏃","🧘","🚴","🏆","💪","🌙"].map((x) => <button key={x} className="sticker-btn" onClick={() => addSticker(x)}>{x}</button>)}</div><label className="label">Images / logos par jour</label><div className="day-images">{DAYS.map((d) => <div key={d} className="day-image-row"><span>{SHORT[d]}</span><input type="file" accept="image/*" onChange={(e) => onDayImage(d, e)} />{style.dayImages[d] && <button className="link" onClick={() => removeDayImage(d)}>Retirer</button>}</div>)}</div>{Object.keys(style.dayImages).length > 0 && <label className="field slider">Transparence : {Math.round(style.dayImageOpacity * 100)} %<input type="range" min="0" max="1" step="0.05" value={style.dayImageOpacity} onChange={(e) => setStyleKey({ dayImageOpacity: Number(e.target.value) })} /></label>}<div className="sticker-list">{(style.stickers || []).map((s, i) => <button key={i} className="sticker-chip" onClick={() => removeSticker(i)}>{s.emoji} <small>retirer</small></button>)}</div></div>}
+              {editorTab === "edit" && <div className="control-grid"><p className="hint">Clique sur une séance ajoutée dans le planning pour modifier son jour, ses horaires ou la supprimer.</p>{renderEditor()}<p className="warn-text editor-warning">⚠ Les séances ajoutées peuvent être décalées de 30 minutes maximum. Les avertissements restent sans blocage.</p></div>}
+            </section>
+          </div>
 
           {/* Planning (zone exportée) */}
           <section className="card plan-card">
@@ -912,7 +852,8 @@ export default function App() {
                 />
               )}
 
-              <div style={{ position: "relative", padding: 20 }}>
+              {(style.stickers || []).map((sticker, i) => <span key={i} className="floating-sticker" style={{ left: sticker.x + "%", top: sticker.y + "%" }}>{sticker.emoji}</span>)}
+              <div style={{ position: "relative", padding: 20, color: style.textColor || "#151515" }}>
                 <h2 style={{ color: style.accent, marginTop: 0 }}>
                   {style.title || (couple ? "Votre planning" : `Planning de ${result.plans[0].name}`)}
                 </h2>
@@ -970,8 +911,8 @@ export default function App() {
 
             <div className="row no-print end">
               <button className="btn ghost" onClick={restart}>Recommencer</button>
-              <button className="btn ghost" onClick={() => setStep(3)}>Modifier mes choix</button>
-              <button className="btn ghost" onClick={() => window.print()}>Imprimer</button>
+              <button className="btn ghost" onClick={() => setStep(2)}>← Modifier mes choix</button>
+              <button className="btn ghost" onClick={() => window.print()}>🖨️ Imprimer / Télécharger</button>
               <button className="btn ghost" disabled={exporting} onClick={exportPNG}>
                 {exporting ? "Export..." : "Export PNG"}
               </button>
@@ -980,6 +921,7 @@ export default function App() {
               </button>
             </div>
           </section>
+          </div>
         </>
       )}
 
@@ -989,7 +931,7 @@ export default function App() {
             Retour
           </button>
           <button className="btn" disabled={loading} onClick={next}>
-            {step === 3 ? (loading ? "Génération..." : "Générer mon planning") : "Suivant"}
+            {step === 2 ? (loading ? "Génération..." : "Générer le planning") : "Suivant"}
           </button>
         </footer>
       )}
@@ -1056,18 +998,13 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .chip.on { background: #14532d; color: #fff; border-color: #14532d; }
 .nav { display: flex; justify-content: space-between; margin-top: 24px; }
 .error { color: #b91c1c; font-size: 14px; margin-top: 18px; }
-.schedule-scroll { overflow-x: auto; margin-top: 18px; }
-.schedule-grid { display: grid; grid-template-columns: 58px repeat(7, minmax(116px, 1fr)); position: relative; border: 1px solid #ececE8; border-radius: 12px; overflow: hidden; }
-.schedule-corner { background: rgba(255,255,255,.7); border-bottom: 1px solid #ececE8; }
-.schedule-day-head { padding: 12px 6px; text-align: center; font-size: 13px; font-weight: 700; color: #151515; background: rgba(255,255,255,.7); border-left: 1px solid #ececE8; border-bottom: 1px solid #ececE8; }
-.schedule-hours { position: relative; background: rgba(255,255,255,.5); }
-.schedule-hours span { position: absolute; right: 7px; transform: translateY(-50%); color: #777; font-size: 11px; }
-.schedule-day { position: relative; overflow: hidden; border-left: 1px solid #ececE8; background: rgba(255,255,255,.34); }
-.schedule-day-image { position: absolute; inset: 0; background-size: cover; background-position: center; pointer-events: none; }
-.schedule-line { position: absolute; left: 0; right: 0; border-top: 1px solid rgba(160,160,160,.18); pointer-events: none; }
-.schedule-event { position: absolute; padding: 6px 7px; border-radius: 7px; display: flex; flex-direction: column; gap: 2px; font-size: 11px; overflow: hidden; z-index: 1; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
-.schedule-event.editable { cursor: pointer; }
-.schedule-event.editable:hover { box-shadow: 0 0 0 2px rgba(20,83,45,.25); }
+.week { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-top: 8px; }
+.day { border: 1px solid #ececE8; border-radius: 12px; padding: 12px; min-height: 120px; background: rgba(255,255,255,.6); }
+.day h3 { font-size: 13px; margin: 0 0 8px; color: #151515; font-weight: 600; }
+.rest { font-size: 12px; color: #b0b0b0; }
+.event { padding: 8px; border-radius: 8px; margin-bottom: 6px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.event.editable { cursor: pointer; }
+.event.editable:hover { box-shadow: 0 0 0 2px rgba(20,83,45,.25); }
 .event span { color: #6b6b6b; }
 .warn-dot { color: #dc2626 !important; font-weight: 600; font-size: 11px; }
 .legend { display: flex; flex-wrap: wrap; gap: 16px; margin: 0 0 14px; }
