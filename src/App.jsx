@@ -21,8 +21,8 @@ const SLOTS = [
 const STEPS = ["Profil", "Ta semaine", "Objectifs"];
 
 const COLORS = [
-  { bg: "#2b1944", border: "#6d28d9", text: "#6d28d9" },
-  { bg: "#211c48", border: "#8b7cff", text: "#8b7cff" },
+  { bg: "#f2f8f4", border: "#14532d", text: "#14532d" },
+  { bg: "#eff6ff", border: "#1d4ed8", text: "#1d4ed8" },
 ];
 
 const CATEGORIES = [
@@ -75,17 +75,23 @@ const emptyPerson = (name) => ({
   level: "debutant",
   fixed: [],
   wants: [],
+  preferredDays: [],
+  preferredSlots: ["soir"],
   maxSessions: 3,
+  earliest: "06:00",
+  latest: "22:00",
 });
 
 const defaultStyle = {
   title: "Mon planning",
-  bgColor: "#211336",
+  bgColor: "#18132c",
   bgImage: "",
   bgOpacity: 0.25,
   dayImages: {},
   dayImageOpacity: 0.3,
-  accent: "#6d28d9",
+  accent: "#a78bfa",
+  textColor: "#f5f3ff",
+  stickers: [],
 };
 
 function loadSaved() {
@@ -112,12 +118,22 @@ export default function App() {
   const [couple, setCouple] = useState(saved?.couple ?? false);
   const [people, setPeople] = useState(saved?.people ?? [emptyPerson("Toi")]);
   const [active, setActive] = useState(0);
-  const [activeView, setActiveView] = useState(saved?.activeView ?? "atelier");
-  const [step, setStep] = useState(Math.min(saved?.step ?? 0, 3));
+  const [step, setStep] = useState(saved?.result ? 4 : Math.min(saved?.step ?? 0, 2));
   const [loading, setLoading] = useState(false);
+  const [cinematic, setCinematic] = useState(false);
+  const [editorTab, setEditorTab] = useState("colors");
   const [error, setError] = useState("");
   const [result, setResult] = useState(saved?.result ?? null);
-  const [style, setStyle] = useState({ ...defaultStyle, ...(saved?.style ?? {}) });
+  const [style, setStyle] = useState({ ...defaultStyle });
+  const [paintTool, setPaintTool] = useState("pen");
+  const [paintColor, setPaintColor] = useState("#c084fc");
+  const [paintSize, setPaintSize] = useState(5);
+  const [paintBackground, setPaintBackground] = useState("#18132c");
+  const [paintHistory, setPaintHistory] = useState([]);
+  const [paintFuture, setPaintFuture] = useState([]);
+  const [draggingEvent, setDraggingEvent] = useState(null);
+  const paintCanvasRef = useRef(null);
+  const paintDrawingRef = useRef(false);
   const [exporting, setExporting] = useState(false);
 
   const [draft, setDraft] = useState({ title: "", days: [], start: "18:00", end: "19:00" });
@@ -129,19 +145,24 @@ export default function App() {
   const exportRef = useRef(null);
 
   const person = people[active] || people[0];
-  const progress = Math.round((Math.min(step, 3) / 3) * 100);
+  const progress = Math.round((Math.min(step, 2) / 2) * 100);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("editor-active", step === 4);
+    return () => document.documentElement.classList.remove("editor-active");
+  }, [step]);
 
   // ----- Sauvegarde automatique -----
   useEffect(() => {
     try {
       localStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ couple, people, step, result, style, activeView })
+        JSON.stringify({ couple, people, step, result })
       );
     } catch (e) {
       // quota dépassé (images trop lourdes) : on ignore sans casser l'app
     }
-  }, [couple, people, step, result, style, activeView]);
+  }, [couple, people, step, result]);
 
   const update = (patch) =>
     setPeople((prev) => prev.map((p, i) => (i === active ? { ...p, ...patch } : p)));
@@ -197,9 +218,16 @@ export default function App() {
     });
   };
 
+  // Réglages internes conservés pour la génération (sans étape affichée).
+  const toggleIn = (key, value) => {
+    const list = person[key];
+    update({ [key]: list.includes(value) ? list.filter((v) => v !== value) : [...list, value] });
+  };
+
   // ----- Génération -----
   const generate = async () => {
     setLoading(true);
+    setCinematic(true);
     setError("");
     try {
       const r = await fetch("/api/plan", {
@@ -210,10 +238,10 @@ export default function App() {
       if (!r.ok) throw new Error("Erreur serveur");
       const data = await r.json();
       setResult(data);
-      setStep(3);
-      setActiveView("planning");
+      setStep(4);
       setActive(0);
       setEditing(null);
+      window.setTimeout(() => setCinematic(false), 6000);
     } catch (e) {
       setError("Impossible de générer le planning. Réessaie dans un instant.");
     } finally {
@@ -296,6 +324,10 @@ export default function App() {
   // ----- Personnalisation -----
   const setStyleKey = (patch) => setStyle((prev) => ({ ...prev, ...patch }));
 
+  const applyTheme = (theme) => setStyleKey(theme);
+  const addSticker = (sticker) => setStyleKey({ stickers: [...(style.stickers || []), { emoji: sticker, x: 18 + ((style.stickers || []).length * 17) % 70, y: 16 + ((style.stickers || []).length * 23) % 65 }] });
+  const removeSticker = (index) => setStyleKey({ stickers: (style.stickers || []).filter((_, i) => i !== index) });
+
   const onBgImage = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -361,6 +393,53 @@ export default function App() {
     }
   };
 
+  // ----- Atelier Paint : dessin libre, annuler/rétablir et remplissage visuel -----
+  const snapshotCanvas = () => paintCanvasRef.current?.toDataURL() || "";
+  const restoreCanvas = (data) => {
+    const canvas = paintCanvasRef.current; if (!canvas || !data) return;
+    const image = new Image(); image.onload = () => canvas.getContext("2d").drawImage(image, 0, 0); image.src = data;
+  };
+  const prepareCanvas = (canvas) => {
+    if (!canvas || canvas.dataset.ready) return;
+    const box = canvas.getBoundingClientRect(); const ratio = window.devicePixelRatio || 1;
+    canvas.width = box.width * ratio; canvas.height = box.height * ratio;
+    canvas.getContext("2d").scale(ratio, ratio); canvas.dataset.ready = "true";
+  };
+  const paintPoint = (event) => {
+    const canvas = paintCanvasRef.current; if (!canvas) return;
+    prepareCanvas(canvas); const rect = canvas.getBoundingClientRect();
+    const ctx = canvas.getContext("2d"); const x = event.clientX - rect.left, y = event.clientY - rect.top;
+    if (paintTool === "bucket") return;
+    ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.lineWidth = paintSize;
+    ctx.strokeStyle = paintTool === "eraser" ? "rgba(0,0,0,1)" : paintColor;
+    ctx.globalCompositeOperation = paintTool === "eraser" ? "destination-out" : paintTool === "marker" ? "multiply" : "source-over";
+    if (!paintDrawingRef.current) { ctx.beginPath(); ctx.moveTo(x, y); paintDrawingRef.current = true; }
+    ctx.lineTo(x, y); ctx.stroke();
+  };
+  const beginPaint = (e) => { if (paintTool === "bucket" || paintTool === "picker") return; setPaintHistory(h => [...h.slice(-14), snapshotCanvas()]); setPaintFuture([]); paintPoint(e); };
+  const handlePaintPointer = (e) => {
+    if (paintTool === "bucket") { setPaintHistory(h => [...h.slice(-14), snapshotCanvas()]); setPaintFuture([]); setPaintBackground(paintColor); return; }
+    if (paintTool === "picker") {
+      const c = paintCanvasRef.current, r = c?.getBoundingClientRect();
+      if (c && r) { const px = c.getContext("2d").getImageData(Math.max(0, Math.floor((e.clientX-r.left)*(c.width/r.width))), Math.max(0, Math.floor((e.clientY-r.top)*(c.height/r.height))), 1, 1).data; if (px[3]) setPaintColor(`#${[px[0],px[1],px[2]].map(v => v.toString(16).padStart(2,"0")).join("")}`); }
+      return;
+    }
+    beginPaint(e);
+  };
+  const endPaint = () => { paintDrawingRef.current = false; };
+  const undoPaint = () => { const last = paintHistory.at(-1); if (!last) return; setPaintFuture(f => [...f, snapshotCanvas()]); setPaintHistory(h => h.slice(0,-1)); const c=paintCanvasRef.current; if(c){c.getContext("2d").clearRect(0,0,c.width,c.height); restoreCanvas(last);} };
+  const redoPaint = () => { const next = paintFuture.at(-1); if (!next) return; setPaintHistory(h => [...h, snapshotCanvas()]); setPaintFuture(f => f.slice(0,-1)); const c=paintCanvasRef.current; if(c){c.getContext("2d").clearRect(0,0,c.width,c.height); restoreCanvas(next);} };
+  const moveEvent = (e, day) => {
+    if (paintTool !== "move") return;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    const planIndex = Number(e.currentTarget.dataset.plan), eventIndex = Number(e.currentTarget.dataset.event);
+    const rect = e.currentTarget.parentElement.getBoundingClientRect();
+    const dayIndex = DAYS.indexOf(day); const nextDay = DAYS[Math.max(0, Math.min(6, Math.round((e.clientX - rect.left) / (rect.width / 7) - .5)))];
+    if (nextDay && nextDay !== day) updateEvent(planIndex, eventIndex, { day: nextDay });
+    setDraggingEvent({ planIndex, eventIndex });
+  };
+  const finishMove = () => setDraggingEvent(null);
+
   const groups = groupFixed(person.fixed);
 
   // ----- Construction de la semaine (réutilisée pour l'affichage) -----
@@ -424,19 +503,23 @@ export default function App() {
               {merged.length === 0 && <div className="rest">Libre</div>}
               {merged.map((e, i) => {
                 const c = e.together
-                  ? { bg: "#35205c", border: "#a78bfa" }
-                  : COLORS[e.owner] || COLORS[0];
+                  ? { bg: style.blockColor || "#f5f0ff", border: "#7c3aed" }
+                  : style.blockColor ? { bg: style.blockColor, border: style.accent } : (COLORS[e.owner] || COLORS[0]);
                 const warns = interactive && !e.together ? warningsFor(e.owner, e.evIndex) : [];
                 const canEdit = interactive && !e.fixed && !e.together;
                 return (
                   <div
                     key={i}
-                    className={canEdit ? "event editable" : "event"}
+                    className={(canEdit ? "event editable" : "event") + " event-reveal"}
+                    data-plan={e.owner} data-event={e.evIndex}
+                    onPointerDown={(ev) => moveEvent(ev, d)} onPointerUp={finishMove}
                     onClick={canEdit ? () => startEdit(e.owner, e.evIndex) : undefined}
+                    onDoubleClick={() => paintTool === "bucket" && setStyleKey({ blockColor: paintColor })}
                     style={{
                       background: c.bg,
-                      borderLeft: `3px solid ${warns.length ? "#f87171" : c.border}`,
+                      borderLeft: `3px solid ${warns.length ? "#dc2626" : c.border}`,
                       opacity: e.fixed ? 0.85 : 1,
+                      animationDelay: `${i * 90}ms`,
                     }}
                   >
                     <strong>{e.title}</strong>
@@ -514,12 +597,25 @@ export default function App() {
     <div className="app">
       <style>{css}</style>
 
-      <header className="top no-print">
+      {cinematic && (
+        <div className="cinematic no-print" role="status" aria-live="polite">
+          <div className="star-field">✦ · ✧ · ✦ · ⋆ · ✧ · ✦ · ⋆ · ✧ · ✦</div><div className="cinematic-orbit"><div className="cinematic-core">RUVY</div></div>
+          <div className="cinematic-track"><span /></div>
+          <div className="cinematic-copy">
+            <p className="cine-line line-1">🔍 Analyse de ta semaine…</p>
+            <p className="cine-line line-2">📅 Placement des séances…</p>
+            <p className="cine-line line-3">✨ Ajout des touches finales…</p>
+            <p className="cine-line line-4">✅ C'est prêt !</p>
+          </div>
+        </div>
+      )}
+
+      <header className={step === 4 ? "top no-print editor-hidden" : "top no-print"}>
         <h1>Mon planning</h1>
         <p>Construis une semaine d'entraînement adaptée à ton niveau.</p>
       </header>
 
-      <div className="progress no-print">
+      <div className={step === 4 ? "progress no-print editor-hidden" : "progress no-print"}>
         <div className="progress-labels">
           {STEPS.map((s, i) => (
             <span key={s} className={i <= step ? "on" : ""}>{s}</span>
@@ -528,7 +624,7 @@ export default function App() {
         <div className="bar"><div className="fill" style={{ width: progress + "%" }} /></div>
       </div>
 
-      {couple && step < 3 && (
+      {couple && step < 4 && (
         <div className="tabs no-print">
           {people.map((p, i) => (
             <button key={i} className={i === active ? "tab on" : "tab"} onClick={() => setActive(i)}>
@@ -723,104 +819,87 @@ export default function App() {
         </section>
       )}
 
-      {/* ---------- ATELIER + PLANNING ---------- */}
-      {step === 3 && result && (
+      {/* ---------- ÉTAPE 4 : PRÉFÉRENCES ---------- */}
+      {false && (
+        <section className="card">
+          <h2>Quels jours peut-on te proposer des séances ?</h2>
+          <p className="hint">Ces réglages s'appliquent à toutes tes activités (sauf si tu en as défini d'autres).</p>
+          <div className="chips">
+            {DAYS.map((d) => (
+              <button
+                key={d}
+                className={person.preferredDays.includes(d) ? "chip on" : "chip"}
+                onClick={() => toggleIn("preferredDays", d)}
+              >
+                {SHORT[d]}
+              </button>
+            ))}
+          </div>
+
+          <h2>À quel moment de la journée ?</h2>
+          <p className="hint">Tu peux en choisir plusieurs.</p>
+          <div className="chips">
+            {SLOTS.map((s) => (
+              <button
+                key={s.id}
+                className={person.preferredSlots.includes(s.id) ? "chip on" : "chip"}
+                onClick={() => toggleIn("preferredSlots", s.id)}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+
+          <h2>Entre quelles heures peut-on te proposer des séances ?</h2>
+          <p className="hint">Aucune séance ne sera placée en dehors de cette plage.</p>
+          <div className="row">
+            <label className="field">De
+              <input type="time" className="input" value={person.earliest} onChange={(e) => update({ earliest: e.target.value })} />
+            </label>
+            <label className="field">À
+              <input type="time" className="input" value={person.latest} onChange={(e) => update({ latest: e.target.value })} />
+            </label>
+          </div>
+          {error && <p className="error">{error}</p>}
+        </section>
+      )}
+
+      {/* ---------- ÉTAPE 5 : PERSONNALISATION + RÉSULTAT ---------- */}
+      {step === 4 && result && (
         <>
-          <nav className="workspace-tabs no-print" aria-label="Navigation du planning">
-            <button className={activeView === "atelier" ? "workspace-tab on" : "workspace-tab"} onClick={() => setActiveView("atelier")}>Atelier</button>
-            <button className={activeView === "planning" ? "workspace-tab on" : "workspace-tab"} onClick={() => setActiveView("planning")}>Planning</button>
-          </nav>
+          <div className="editor-workspace">
+          <div className="editor-layout no-print">
+            <aside className="editor-sidebar">
+              <div className="editor-brand"><span>✦</span><div><strong>Atelier</strong><small>Ton planning, ta signature</small></div></div>
+              <div className="editor-tabs">
+                <button className={editorTab === "colors" ? "editor-tab active" : "editor-tab"} onClick={() => setEditorTab("colors")}>🎨 <span>Personnalisation</span></button>
+                <button className={editorTab === "paint" ? "editor-tab active" : "editor-tab"} onClick={() => setEditorTab("paint")}>🖌️ <span>Fond</span></button>
+                <button className={editorTab === "stickers" ? "editor-tab active" : "editor-tab"} onClick={() => setEditorTab("stickers")}>✨ <span>Stickers</span></button>
+                <button className={editorTab === "edit" ? "editor-tab active" : "editor-tab"} onClick={() => setEditorTab("edit")}>✏️ <span>Modification</span></button>
+              </div>
+            </aside>
+            <section className="editor-panel">
+              <div className="editor-panel-head"><div><span className="eyebrow">PERSONNALISATION</span><h2>{editorTab === "colors" ? "Donne-lui ta couleur" : editorTab === "stickers" ? "Ajoute ton énergie" : "Ajuste tes séances"}</h2></div><span className="editor-status">● Sauvegardé</span></div>
+              {editorTab === "colors" && <div className="control-grid">
+                <label className="label">Titre du planning<input className="input full" value={style.title} onChange={(e) => setStyleKey({ title: e.target.value })} /></label>
+                <div className="color-grid"><label className="field">Fond<input type="color" className="color" value={style.bgColor} onChange={(e) => setStyleKey({ bgColor: e.target.value })} /></label><label className="field">Accent<input type="color" className="color" value={style.accent} onChange={(e) => setStyleKey({ accent: e.target.value })} /></label><label className="field">Texte<input type="color" className="color" value={style.textColor || "#151515"} onChange={(e) => setStyleKey({ textColor: e.target.value })} /></label></div>
+                <div><label className="label">Thèmes prêts à l'emploi</label><div className="theme-row"><button className="theme theme-aurora" onClick={() => applyTheme({ bgColor: "#101026", accent: "#a78bfa", textColor: "#f5f3ff" })}>Aurora</button><button className="theme theme-sunset" onClick={() => applyTheme({ bgColor: "#fff7ed", accent: "#ea580c", textColor: "#431407" })}>Sunset</button><button className="theme theme-forest" onClick={() => applyTheme({ bgColor: "#f2f8f4", accent: "#14532d", textColor: "#163324" })}>Forêt</button></div></div>
+                <label className="label">Arrière-plan <input type="file" accept="image/*" onChange={onBgImage} /></label>{style.bgImage && <><button className="link" onClick={() => setStyleKey({ bgImage: "" })}>Retirer l'image</button><label className="field slider">Transparence : {Math.round(style.bgOpacity * 100)} %<input type="range" min="0" max="1" step="0.05" value={style.bgOpacity} onChange={(e) => setStyleKey({ bgOpacity: Number(e.target.value) })} /></label></>}
+              </div>}
+              {editorTab === "paint" && <div className="control-grid"><p className="hint">Dessine directement sur le planning. Le pot colore la zone ciblée, la pipette reprend une couleur, et les personnalisations restent en mémoire uniquement pendant cette session.</p><div className="paint-tools">{[["move","↔","Déplacer"],["pen","✎","Stylo"],["bucket","▧","Pot"],["eraser","⌫","Gomme"],["picker","⌾","Pipette"],["marker","▰","Surligneur"]].map(([id,icon,label]) => <button key={id} className={paintTool===id ? "paint-tool active" : "paint-tool"} onClick={() => setPaintTool(id)}>{icon}<small>{label}</small></button>)}</div><label className="label">Épaisseur : {paintSize}px<input type="range" min="2" max="32" value={paintSize} onChange={(e) => setPaintSize(Number(e.target.value))} /></label><label className="label">Couleur<input type="color" className="color" value={paintColor} onChange={(e) => setPaintColor(e.target.value)} /></label><div className="paint-actions"><button className="theme" onClick={undoPaint}>↶ Annuler</button><button className="theme" onClick={redoPaint}>↷ Rétablir</button></div><label className="label">Fond du planning<select className="input" value={paintBackground} onChange={(e) => setPaintBackground(e.target.value)}><option value="#18132c">Violet profond</option><option value="#25143d">Prune</option><option value="#172554">Bleu nuit</option><option value="#1f2937">Ardoise</option></select></label></div>}
+              {editorTab === "stickers" && <div className="control-grid"><p className="hint">Choisis un signe distinctif, puis ajoute des images par jour comme arrière-plan ou logo.</p><div className="sticker-palette">{["🔥","⚡","🏋️","🥊","🏃","🧘","🚴","🏆","💪","🌙"].map((x) => <button key={x} className="sticker-btn" onClick={() => addSticker(x)}>{x}</button>)}</div><label className="label">Images / logos par jour</label><div className="day-images">{DAYS.map((d) => <div key={d} className="day-image-row"><span>{SHORT[d]}</span><input type="file" accept="image/*" onChange={(e) => onDayImage(d, e)} />{style.dayImages[d] && <button className="link" onClick={() => removeDayImage(d)}>Retirer</button>}</div>)}</div>{Object.keys(style.dayImages).length > 0 && <label className="field slider">Transparence : {Math.round(style.dayImageOpacity * 100)} %<input type="range" min="0" max="1" step="0.05" value={style.dayImageOpacity} onChange={(e) => setStyleKey({ dayImageOpacity: Number(e.target.value) })} /></label>}<div className="sticker-list">{(style.stickers || []).map((s, i) => <button key={i} className="sticker-chip" onClick={() => removeSticker(i)}>{s.emoji} <small>retirer</small></button>)}</div></div>}
+              {editorTab === "edit" && <div className="control-grid"><p className="hint">Clique sur une séance ajoutée dans le planning pour modifier son jour, ses horaires ou la supprimer.</p>{renderEditor()}<p className="warn-text editor-warning">⚠ Les séances ajoutées peuvent être décalées de 30 minutes maximum. Les avertissements restent sans blocage.</p></div>}
+            </section>
+          </div>
 
-          {activeView === "atelier" && <section className="card no-print">
-            <h2>Personnalisation</h2>
-            <p className="hint">
-              {couple
-                ? "Un seul réglage pour le planning commun du couple."
-                : "Règle l'apparence de ton planning."}
-            </p>
-
-            <label className="label">Titre du planning</label>
-            <input
-              className="input full"
-              value={style.title}
-              onChange={(e) => setStyleKey({ title: e.target.value })}
-            />
-
-            <div className="row spaced">
-              <label className="field">Couleur de fond
-                <input
-                  type="color"
-                  className="color"
-                  value={style.bgColor}
-                  onChange={(e) => setStyleKey({ bgColor: e.target.value })}
-                />
-              </label>
-              <label className="field">Couleur d'accent
-                <input
-                  type="color"
-                  className="color"
-                  value={style.accent}
-                  onChange={(e) => setStyleKey({ accent: e.target.value })}
-                />
-              </label>
-            </div>
-
-            <label className="label">Image de fond</label>
-            <div className="row">
-              <input type="file" accept="image/*" onChange={onBgImage} />
-              {style.bgImage && (
-                <button className="link" onClick={() => setStyleKey({ bgImage: "" })}>
-                  Retirer l'image
-                </button>
-              )}
-            </div>
-            {style.bgImage && (
-              <label className="field slider">
-                Transparence de l'image : {Math.round(style.bgOpacity * 100)} %
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={style.bgOpacity}
-                  onChange={(e) => setStyleKey({ bgOpacity: Number(e.target.value) })}
-                />
-              </label>
-            )}
-
-            <label className="label">Images par jour <em>(optionnel)</em></label>
-            <div className="day-images">
-              {DAYS.map((d) => (
-                <div key={d} className="day-image-row">
-                  <span>{SHORT[d]}</span>
-                  <input type="file" accept="image/*" onChange={(e) => onDayImage(d, e)} />
-                  {style.dayImages[d] && (
-                    <button className="link" onClick={() => removeDayImage(d)}>Retirer</button>
-                  )}
-                </div>
-              ))}
-            </div>
-            {Object.keys(style.dayImages).length > 0 && (
-              <label className="field slider">
-                Transparence des images de jour : {Math.round(style.dayImageOpacity * 100)} %
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={style.dayImageOpacity}
-                  onChange={(e) => setStyleKey({ dayImageOpacity: Number(e.target.value) })}
-                />
-              </label>
-            )}
-          </section>}
-
-          {activeView === "planning" && <section className="card plan-card">
+          {/* Planning (zone exportée) */}
+          <section className="card plan-card">
             <div
               ref={exportRef}
               className="export-zone"
-              style={{ background: style.bgColor, position: "relative", overflow: "hidden" }}
+              style={{ background: paintBackground || style.bgColor, position: "relative", overflow: "hidden" }}
             >
+              <canvas ref={paintCanvasRef} className="paint-canvas" style={{ pointerEvents: paintTool === "move" ? "none" : "auto" }} onPointerDown={handlePaintPointer} onPointerMove={(e) => paintDrawingRef.current && paintPoint(e)} onPointerUp={endPaint} onPointerCancel={endPaint} aria-label="Dessin par-dessus le planning" />
               {style.bgImage && (
                 <div
                   style={{
@@ -835,7 +914,8 @@ export default function App() {
                 />
               )}
 
-              <div style={{ position: "relative", padding: 20 }}>
+              {(style.stickers || []).map((sticker, i) => <span key={i} className="floating-sticker" style={{ left: sticker.x + "%", top: sticker.y + "%" }}>{sticker.emoji}</span>)}
+              <div style={{ position: "relative", padding: 20, color: style.textColor || "#151515" }}>
                 <h2 style={{ color: style.accent, marginTop: 0 }}>
                   {style.title || (couple ? "Votre planning" : `Planning de ${result.plans[0].name}`)}
                 </h2>
@@ -855,7 +935,7 @@ export default function App() {
                       </span>
                     ))}
                     <span className="legend-item">
-                      <span className="dot" style={{ background: "#a78bfa" }} />
+                      <span className="dot" style={{ background: "#7c3aed" }} />
                       Ensemble
                     </span>
                   </div>
@@ -893,8 +973,8 @@ export default function App() {
 
             <div className="row no-print end">
               <button className="btn ghost" onClick={restart}>Recommencer</button>
-              <button className="btn ghost" onClick={() => { setStep(2); setActiveView("atelier"); }}>Modifier mes choix</button>
-              <button className="btn ghost" onClick={() => window.print()}>Imprimer</button>
+              <button className="btn ghost" onClick={() => setStep(0)}>← Modifier mes infos</button>
+              <button className="btn ghost" onClick={() => window.print()}>🖨️ Imprimer / Télécharger</button>
               <button className="btn ghost" disabled={exporting} onClick={exportPNG}>
                 {exporting ? "Export..." : "Export PNG"}
               </button>
@@ -902,17 +982,18 @@ export default function App() {
                 {exporting ? "Export..." : "Export PDF"}
               </button>
             </div>
-          </section>}
+          </section>
+          </div>
         </>
       )}
 
-      {step < 3 && (
+      {step < 4 && (
         <footer className="nav no-print">
           <button className="btn ghost" disabled={step === 0} onClick={() => setStep(step - 1)}>
             Retour
           </button>
           <button className="btn" disabled={loading} onClick={next}>
-            {step === 2 ? (loading ? "Génération..." : "Générer mon planning") : "Suivant"}
+            {step === 2 ? (loading ? "Génération..." : "Générer le planning") : "Suivant"}
           </button>
         </footer>
       )}
@@ -922,83 +1003,127 @@ export default function App() {
 
 const css = `
 * { box-sizing: border-box; }
-body { margin: 0; background: #120b1f; -webkit-font-smoothing: antialiased; }
-.app { max-width: 820px; margin: 0 auto; padding: 48px 20px 80px; font-family: Inter, system-ui, -apple-system, sans-serif; color: #f5efff; }
+body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
+.app { max-width: 820px; margin: 0 auto; padding: 48px 20px 80px; font-family: Inter, system-ui, -apple-system, sans-serif; color: #151515; }
 .top h1 { font-size: 32px; margin: 0 0 8px; letter-spacing: -0.03em; font-weight: 700; }
-.top p { margin: 0; color: #c8b9dc; font-size: 16px; }
+.top p { margin: 0; color: #6b6b6b; font-size: 16px; }
 .progress { margin: 36px 0 24px; }
-.progress-labels { display: flex; justify-content: space-between; font-size: 13px; color: #8f7ca8; margin-bottom: 10px; }
-.progress-labels .on { color: #f5efff; font-weight: 600; }
-.bar { height: 3px; background: #3a2850; border-radius: 4px; overflow: hidden; }
-.fill { height: 100%; background: #6d28d9; transition: width .35s ease; }
+.progress-labels { display: flex; justify-content: space-between; font-size: 13px; color: #a3a3a3; margin-bottom: 10px; }
+.progress-labels .on { color: #151515; font-weight: 600; }
+.bar { height: 3px; background: #e7e7e4; border-radius: 4px; overflow: hidden; }
+.fill { height: 100%; background: #14532d; transition: width .35s ease; }
 .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
-.tab { padding: 9px 18px; border: 1px solid #49335f; background: #211336; border-radius: 999px; cursor: pointer; font-size: 14px; color: #f5efff; font-family: inherit; }
-.tab.on { background: #f5efff; color: #211336; border-color: #f5efff; }
-.card { background: #211336; border: 1px solid #3b2850; border-radius: 20px; padding: 36px; box-shadow: 0 1px 2px rgba(0,0,0,.03); margin-bottom: 20px; }
-.card h2 { font-size: 18px; margin: 32px 0 6px; color: #f5efff; font-weight: 600; letter-spacing: -0.01em; }
+.tab { padding: 9px 18px; border: 1px solid #e3e3df; background: #fff; border-radius: 999px; cursor: pointer; font-size: 14px; color: #151515; font-family: inherit; }
+.tab.on { background: #151515; color: #fff; border-color: #151515; }
+.card { background: #fff; border: 1px solid #ebebe8; border-radius: 20px; padding: 36px; box-shadow: 0 1px 2px rgba(0,0,0,.03); margin-bottom: 20px; }
+.card h2 { font-size: 18px; margin: 32px 0 6px; color: #151515; font-weight: 600; letter-spacing: -0.01em; }
 .card h2:first-child { margin-top: 0; }
-.hint { color: #c8b9dc; font-size: 14px; margin: 0 0 14px; line-height: 1.5; }
+.hint { color: #6b6b6b; font-size: 14px; margin: 0 0 14px; line-height: 1.5; }
 .hint.small { font-size: 12px; margin-top: 10px; }
 .choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 12px; }
-.choice { text-align: left; padding: 18px; border: 1px solid #49335f; background: #211336; border-radius: 14px; cursor: pointer; display: flex; flex-direction: column; gap: 4px; color: #f5efff; font-family: inherit; font-size: 15px; transition: border-color .15s; }
-.choice span { font-size: 13px; color: #c8b9dc; }
-.choice:hover { border-color: #735b8e; }
-.choice.on { border-color: #6d28d9; background: #2b1944; }
-.form-block { display: flex; flex-direction: column; gap: 10px; background: #1c102c; border: 1px solid #3b2850; border-radius: 16px; padding: 22px; margin-top: 8px; }
+.choice { text-align: left; padding: 18px; border: 1px solid #e3e3df; background: #fff; border-radius: 14px; cursor: pointer; display: flex; flex-direction: column; gap: 4px; color: #151515; font-family: inherit; font-size: 15px; transition: border-color .15s; }
+.choice span { font-size: 13px; color: #6b6b6b; }
+.choice:hover { border-color: #b9b9b3; }
+.choice.on { border-color: #14532d; background: #f2f8f4; }
+.form-block { display: flex; flex-direction: column; gap: 10px; background: #fafaf8; border: 1px solid #efefeb; border-radius: 16px; padding: 22px; margin-top: 8px; }
 .label { font-size: 14px; font-weight: 600; margin-top: 10px; display: block; }
 .label:first-child { margin-top: 0; }
-.label em { font-weight: 400; color: #a995bd; font-style: normal; }
+.label em { font-weight: 400; color: #8a8a8a; font-style: normal; }
 .full { width: 100%; }
 .shortcuts { display: flex; flex-wrap: wrap; gap: 14px; }
-.link-btn { background: none; border: none; padding: 0; color: #6d28d9; font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; text-decoration: underline; text-underline-offset: 3px; }
+.link-btn { background: none; border: none; padding: 0; color: #14532d; font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; text-decoration: underline; text-underline-offset: 3px; }
 .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
 .row.spaced { margin-top: 16px; margin-bottom: 6px; }
 .row.end { justify-content: flex-end; margin-top: 32px; }
 .grow { flex: 1; min-width: 160px; }
-.input { padding: 11px 14px; border: 1px solid #4b3662; border-radius: 12px; font-size: 15px; background: #211336; color: #f5efff; font-family: inherit; }
-.input:focus { outline: none; border-color: #6d28d9; box-shadow: 0 0 0 3px rgba(109,40,217,.22); }
-.field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #c8b9dc; }
+.input { padding: 11px 14px; border: 1px solid #e0e0dc; border-radius: 12px; font-size: 15px; background: #fff; color: #151515; font-family: inherit; }
+.input:focus { outline: none; border-color: #14532d; box-shadow: 0 0 0 3px rgba(20,83,45,.1); }
+.field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #6b6b6b; }
 .field.slider { margin-top: 10px; max-width: 360px; }
-.color { width: 64px; height: 38px; padding: 2px; border: 1px solid #4b3662; border-radius: 10px; background: #211336; cursor: pointer; }
-.btn { padding: 11px 22px; border-radius: 12px; border: 1px solid #6d28d9; background: #6d28d9; color: #211336; font-size: 15px; font-weight: 500; cursor: pointer; font-family: inherit; }
-.btn:hover:not(:disabled) { background: #5521aa; }
+.color { width: 64px; height: 38px; padding: 2px; border: 1px solid #e0e0dc; border-radius: 10px; background: #fff; cursor: pointer; }
+.btn { padding: 11px 22px; border-radius: 12px; border: 1px solid #14532d; background: #14532d; color: #fff; font-size: 15px; font-weight: 500; cursor: pointer; font-family: inherit; }
+.btn:hover:not(:disabled) { background: #0f4023; }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
-.btn.ghost { background: #211336; color: #f5efff; border-color: #4b3662; }
-.btn.ghost:hover:not(:disabled) { background: #2b1944; }
-.link { background: none; border: none; color: #a995bd; cursor: pointer; font-size: 13px; font-family: inherit; }
-.link:hover { color: #fb7185; }
+.btn.ghost { background: #fff; color: #151515; border-color: #e0e0dc; }
+.btn.ghost:hover:not(:disabled) { background: #f5f5f3; }
+.link { background: none; border: none; color: #9a9a9a; cursor: pointer; font-size: 13px; font-family: inherit; }
+.link:hover { color: #b91c1c; }
 .list { list-style: none; padding: 0; margin: 20px 0 0; display: flex; flex-direction: column; gap: 8px; }
-.list li { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border: 1px solid #432e58; border-radius: 12px; background: #211336; }
+.list li { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border: 1px solid #ececE8; border-radius: 12px; background: #fff; }
 .list li div { display: flex; flex-direction: column; gap: 3px; }
-.list small { color: #c8b9dc; font-size: 13px; }
-.list .empty { color: #8f7ca8; font-size: 14px; justify-content: center; border-style: dashed; background: transparent; }
-.tag { display: inline-block; margin-left: 8px; padding: 2px 9px; font-size: 11px; background: #38254e; border-radius: 999px; color: #555; font-weight: 500; }
+.list small { color: #6b6b6b; font-size: 13px; }
+.list .empty { color: #a3a3a3; font-size: 14px; justify-content: center; border-style: dashed; background: transparent; }
+.tag { display: inline-block; margin-left: 8px; padding: 2px 9px; font-size: 11px; background: #f0f0ed; border-radius: 999px; color: #555; font-weight: 500; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
-.chip { padding: 9px 18px; border: 1px solid #4b3662; background: #211336; border-radius: 999px; cursor: pointer; font-size: 14px; color: #f5efff; font-family: inherit; transition: all .15s; }
-.chip:hover { border-color: #735b8e; }
-.chip.on { background: #6d28d9; color: #211336; border-color: #6d28d9; }
+.chip { padding: 9px 18px; border: 1px solid #e0e0dc; background: #fff; border-radius: 999px; cursor: pointer; font-size: 14px; color: #151515; font-family: inherit; transition: all .15s; }
+.chip:hover { border-color: #b9b9b3; }
+.chip.on { background: #14532d; color: #fff; border-color: #14532d; }
 .nav { display: flex; justify-content: space-between; margin-top: 24px; }
-.error { color: #fb7185; font-size: 14px; margin-top: 18px; }
+.error { color: #b91c1c; font-size: 14px; margin-top: 18px; }
 .week { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-top: 8px; }
-.day { border: 1px solid #432e58; border-radius: 12px; padding: 12px; min-height: 120px; background: rgba(33,19,54,.72); }
-.day h3 { font-size: 13px; margin: 0 0 8px; color: #f5efff; font-weight: 600; }
-.rest { font-size: 12px; color: #927fa8; }
+.day { border: 1px solid #ececE8; border-radius: 12px; padding: 12px; min-height: 120px; background: rgba(255,255,255,.6); }
+.day h3 { font-size: 13px; margin: 0 0 8px; color: #151515; font-weight: 600; }
+.rest { font-size: 12px; color: #b0b0b0; }
 .event { padding: 8px; border-radius: 8px; margin-bottom: 6px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
 .event.editable { cursor: pointer; }
-.event.editable:hover { box-shadow: 0 0 0 2px rgba(109,40,217,.35); }
-.event span { color: #c8b9dc; }
-.warn-dot { color: #f87171 !important; font-weight: 600; font-size: 11px; }
+.event.editable:hover { box-shadow: 0 0 0 2px rgba(20,83,45,.25); }
+.event span { color: #6b6b6b; }
+.warn-dot { color: #dc2626 !important; font-weight: 600; font-size: 11px; }
 .legend { display: flex; flex-wrap: wrap; gap: 16px; margin: 0 0 14px; }
-.legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #d9cbed; }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #444; }
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .owner { font-size: 11px; font-weight: 600; }
-.badge-ia { display: inline-block; margin: 0 0 14px; padding: 5px 14px; border-radius: 999px; background: #342052; color: #c4b5fd; font-size: 13px; font-weight: 600; }
+.badge-ia { display: inline-block; margin: 0 0 14px; padding: 5px 14px; border-radius: 999px; background: #f3eefe; color: #5b3fd1; font-size: 13px; font-weight: 600; }
 .common { margin-top: 32px; }
 .wants { display: flex; flex-direction: column; gap: 14px; margin-top: 20px; }
-.want-card { border: 1px solid #432e58; border-radius: 14px; padding: 18px; display: flex
+.want-card { border: 1px solid #ececE8; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+.editor-hidden { display: none !important; }
+.cinematic { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; align-content: center; gap: 24px; background: radial-gradient(circle at 50% 42%, #39206f 0, #171329 28%, #090812 72%); color: white; overflow: hidden; }
+.cinematic::before { content: ""; position: absolute; inset: 0; opacity: .22; background-image: linear-gradient(rgba(167,139,250,.12) 1px, transparent 1px), linear-gradient(90deg, rgba(167,139,250,.12) 1px, transparent 1px); background-size: 48px 48px; transform: perspective(500px) rotateX(55deg) scale(1.6); transform-origin: bottom; }
+.cinematic-orbit { position: relative; z-index: 1; width: 132px; height: 132px; border-radius: 50%; border: 1px solid rgba(216,180,254,.35); box-shadow: 0 0 30px #8b5cf6, inset 0 0 30px rgba(139,92,246,.5); animation: orbitPulse 1.5s ease-in-out infinite; display: grid; place-items: center; }
+.cinematic-orbit::after { content: ""; position: absolute; inset: -12px; border: 2px solid transparent; border-top-color: #f0abfc; border-right-color: #818cf8; border-radius: 50%; animation: spin 1.1s linear infinite; }
+.cinematic-core { font-size: 42px; color: #e9d5ff; text-shadow: 0 0 24px #c084fc; animation: coreGlow 1s ease-in-out infinite alternate; }
+.cinematic-track { z-index: 1; width: min(360px, 70vw); height: 4px; border-radius: 9px; background: rgba(255,255,255,.14); overflow: hidden; }
+.cinematic-track span { display: block; height: 100%; width: 0; background: linear-gradient(90deg,#f0abfc,#8b5cf6,#67e8f9); animation: fillCine 6s linear forwards; }
+.cinematic-copy { z-index: 1; position: relative; min-height: 30px; text-align: center; }
+.cine-line { position: absolute; width: 100%; margin: 0; opacity: 0; font-size: clamp(16px, 2.5vw, 22px); font-weight: 600; letter-spacing: .01em; white-space: nowrap; }
+.line-1 { animation: cineText 6s 0s both; color: #c4b5fd; }.line-2 { animation: cineText 6s 1.5s both; color: #93c5fd; }.line-3 { animation: cineText 6s 3s both; color: #f0abfc; }.line-4 { animation: cineText 6s 4.5s both; color: #86efac; }
+.editor-layout { display: grid; grid-template-columns: 190px 1fr; gap: 20px; margin-bottom: 22px; padding: 18px; border-radius: 24px; background: linear-gradient(135deg,#141126,#1d1534); color: #f5f3ff; box-shadow: 0 24px 70px rgba(53,27,105,.22); }
+.editor-sidebar { display: flex; flex-direction: column; }.editor-brand { display:flex; gap:10px; align-items:center; margin-bottom: 28px; }.editor-brand > span { display:grid; place-items:center; width:34px; height:34px; border-radius:11px; background:linear-gradient(135deg,#c084fc,#7c3aed); box-shadow:0 0 20px #7c3aed; }.editor-brand strong,.editor-brand small { display:block; }.editor-brand small { color:#aaa3c9; font-size:10px; margin-top:3px; }.editor-tabs { display:flex; flex-direction:column; gap:6px; }.editor-tab { border:0; background:transparent; color:#aaa3c9; text-align:left; padding:12px 10px; border-radius:12px; font:inherit; cursor:pointer; display:flex; gap:10px; align-items:center; }.editor-tab.active { color:#fff; background:rgba(167,139,250,.18); box-shadow:inset 3px 0 #c084fc; }.editor-panel { min-width:0; background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.1); border-radius:18px; padding:22px; }.editor-panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:20px; }.editor-panel h2 { color:#fff; margin:5px 0 0; }.eyebrow { color:#c084fc; font-size:10px; font-weight:700; letter-spacing:.16em; }.editor-status { color:#86efac; font-size:11px; }.control-grid { display:grid; gap:16px; }.editor-panel .label { color:#dcd6f2; }.editor-panel .input,.editor-panel .color { background:rgba(8,6,20,.45); border-color:#493c6b; color:#fff; }.editor-panel .hint { color:#b9b1d0; }.color-grid { display:flex; gap:24px; }.theme-row { display:flex; gap:8px; flex-wrap:wrap; }.theme { border:1px solid #5b4a83; color:#fff; border-radius:10px; padding:10px 14px; cursor:pointer; background:#26203d; }.theme-aurora { background:linear-gradient(135deg,#16122e,#6d28d9); }.theme-sunset { background:linear-gradient(135deg,#7c2d12,#fb923c); }.theme-forest { background:linear-gradient(135deg,#14532d,#65a30d); }.sticker-palette { display:flex; flex-wrap:wrap; gap:8px; }.sticker-btn { border:1px solid #58477c; background:#211a3a; border-radius:12px; font-size:24px; width:46px; height:46px; cursor:pointer; transition:transform .15s; }.sticker-btn:hover { transform:translateY(-3px) rotate(-4deg); }.sticker-list { display:flex; gap:8px; flex-wrap:wrap; }.sticker-chip { border:1px solid #66538d; background:#2a2147; color:#fff; border-radius:99px; padding:6px 10px; cursor:pointer; }.sticker-chip small { color:#b8add4; }.editor-warning { color:#ff7b87 !important; border-left:2px solid #ef4444; padding-left:10px; }.floating-sticker { position:absolute; z-index:2; font-size:28px; filter:drop-shadow(0 4px 8px rgba(0,0,0,.18)); transform:rotate(-8deg); }.event-reveal { animation: eventReveal .55s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes spin { to { transform:rotate(360deg); } } @keyframes orbitPulse { 50% { transform:scale(1.05); box-shadow:0 0 55px #a78bfa, inset 0 0 36px rgba(139,92,246,.7); } } @keyframes coreGlow { to { transform:scale(1.14) rotate(8deg); } } @keyframes fillCine { to { width:100%; } } @keyframes cineText { 0%,18% { opacity:0; transform:translateY(10px); } 24%,44% { opacity:1; transform:translateY(0); } 52%,100% { opacity:0; transform:translateY(-10px); } } @keyframes eventReveal { from { opacity:0; transform:scale(.84) translateY(8px); } to { opacity:1; transform:scale(1) translateY(0); } }
+@media (max-width: 680px) { .editor-layout { display:block; padding:12px; }.editor-sidebar { display:block; }.editor-brand { margin:4px 4px 12px; }.editor-tabs { flex-direction:row; gap:4px; }.editor-tab { flex:1; justify-content:center; padding:10px 4px; font-size:12px; }.editor-tab span { display:none; }.editor-panel { margin-top:10px; padding:16px; }.editor-panel-head { margin-bottom:14px; }.color-grid { gap:14px; }.app { padding:26px 12px 54px; } }
+/* Mode éditeur : atelier + aperçu côte à côte, sans surface blanche. */
+html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff; }
+.editor-workspace { display:grid; grid-template-columns:190px minmax(280px,1fr) minmax(390px,1.35fr); gap:20px; align-items:start; }
+.editor-workspace .editor-layout { display:contents; }
+.editor-workspace .editor-sidebar { grid-column:1; position:sticky; top:20px; padding:18px 0; }
+.editor-workspace .editor-panel { grid-column:2; position:sticky; top:20px; }
+.editor-workspace .plan-card { grid-column:3; position:sticky; top:20px; margin:0; background:#141026; border-color:#30234d; color:#eee9ff; }
+.editor-workspace .plan-card .export-zone { background:#18132c !important; }
+.editor-workspace .plan-card .day { background:#211a38; border-color:#40335f; }
+.editor-workspace .plan-card .day h3, .editor-workspace .plan-card .legend-item { color:#eee9ff; }
+.editor-workspace .plan-card .event { background:#2a2148 !important; color:#f5f3ff; }
+.editor-workspace .plan-card .event span, .editor-workspace .plan-card .hint, .editor-workspace .plan-card .rest { color:#c8bfdf; }
+.editor-workspace .plan-card .badge-ia { background:#2d2250; color:#d8b4fe; }
+.editor-workspace .plan-card .list li { background:#211a38; border-color:#40335f; color:#f5f3ff; }
+.editor-workspace .plan-card .list small { color:#c8bfdf; }
+.editor-workspace .row.end .btn, .editor-workspace .plan-card .btn.ghost { background:#211a38; border-color:#6d4db0; color:#eee9ff; }
+.editor-workspace input[type=file] { color:#d8cef0; background:#17112c; border:1px solid #493c6b; border-radius:10px; padding:5px; }
+.editor-workspace input[type=file]::file-selector-button { border:0; border-radius:8px; padding:8px 12px; margin-right:8px; background:#7c3aed; color:#fff; cursor:pointer; font:inherit; }
+@media (max-width: 1050px) { .editor-workspace { grid-template-columns:180px minmax(260px,1fr) minmax(320px,1fr); gap:12px; } }
+@media (max-width: 760px) { .editor-workspace { display:block; } .editor-workspace .editor-sidebar, .editor-workspace .editor-panel, .editor-workspace .plan-card { position:static; } .editor-workspace .editor-layout { display:block; } .editor-workspace .plan-card { margin-top:14px; } }
 
-.workspace-tabs { display: flex; gap: 8px; margin: 0 0 16px; }
-.workspace-tab { padding: 10px 18px; border: 1px solid #49335f; background: #211336; color: #c8b9dc; border-radius: 999px; cursor: pointer; font-size: 14px; font-family: inherit; }
-.workspace-tab.on { background: #6d28d9; color: #f5efff; border-color: #6d28d9; }
+@media print { .editor-layout, .no-print { display:none !important; } .plan-card { border:0; box-shadow:none; } }
+
+.paint-canvas { position:absolute; inset:0; width:100%; height:100%; z-index:8; touch-action:none; cursor:crosshair; }
+.paint-tools { display:grid; grid-template-columns:repeat(3, minmax(70px,1fr)); gap:8px; }
+.paint-tool { min-height:58px; border:1px solid #58477c; background:#211a3a; color:#eee9ff; border-radius:12px; cursor:pointer; font-size:20px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; }
+.paint-tool small { font-size:10px; color:#c8bfdf; }
+.paint-tool.active { background:#7c3aed; border-color:#c084fc; box-shadow:0 0 0 2px rgba(192,132,252,.22); }
+.paint-actions { display:flex; gap:8px; }
+.star-field { position:absolute; inset:0; z-index:0; color:#f5d0fe; letter-spacing:clamp(14px,4vw,48px); font-size:clamp(18px,3vw,34px); opacity:.7; animation: twinkle 1.4s ease-in-out infinite alternate; white-space:normal; line-height:4; text-align:center; transform:rotate(-8deg) scale(1.5); text-shadow:0 0 12px #c084fc; pointer-events:none; }
+.cinematic-core { font-family:Georgia, 'Times New Roman', serif; font-weight:800; letter-spacing:.14em; font-size:clamp(30px,6vw,58px); }
+@keyframes twinkle { from { opacity:.25; transform:rotate(-8deg) scale(1.45); } to { opacity:.9; transform:rotate(-8deg) scale(1.58); } }
+@media (max-width: 680px) { .paint-tools { grid-template-columns:repeat(3,1fr); } }
 
 `;
