@@ -256,6 +256,69 @@ export default function App() {
   const [editing, setEditing] = useState(null);
 
   const exportRef = useRef(null);
+  const printRootRef = useRef(null);
+
+  const fitPrintToPage = () => {
+    const root = printRootRef.current;
+    const sheet = root?.querySelector(".print-sheet");
+    if (!root || !sheet || root.dataset.printPrevious) return;
+
+    // A4 paysage moins les marges @page de 8 mm, en pixels CSS à 96 dpi.
+    const mm = 96 / 25.4;
+    const pageW = 297 * mm - 16 * mm;
+    const pageH = 210 * mm - 16 * mm;
+    const previous = { display: root.style.display, width: root.style.width, height: root.style.height, overflow: root.style.overflow, transform: sheet.style.transform, widthSheet: sheet.style.width };
+
+    // Le conteneur est normalement display:none : le rendre mesurable avant l'impression.
+    root.style.display = "block";
+    root.style.width = `${pageW}px`;
+    root.style.height = "auto";
+    root.style.overflow = "hidden";
+    sheet.style.transform = "none";
+    sheet.style.width = "100%";
+
+    const contentW = Math.max(sheet.scrollWidth, sheet.getBoundingClientRect().width);
+    const contentH = Math.max(sheet.scrollHeight, sheet.getBoundingClientRect().height);
+    const scale = Math.min(1, pageW / contentW, pageH / contentH);
+
+    sheet.style.transformOrigin = "top left";
+    sheet.style.transform = `scale(${scale})`;
+    sheet.style.width = `${100 / scale}%`;
+    root.style.width = `${pageW}px`;
+    root.style.height = `${Math.ceil(contentH * scale)}px`;
+    root.dataset.printScale = String(scale);
+    root.dataset.printPrevious = JSON.stringify(previous);
+  };
+
+  const resetPrintFit = () => {
+    const root = printRootRef.current;
+    const sheet = root?.querySelector(".print-sheet");
+    if (!root || !sheet) return;
+    let previous = {};
+    try { previous = JSON.parse(root.dataset.printPrevious || "{}"); } catch {}
+    root.style.display = previous.display || "";
+    root.style.width = previous.width || "";
+    root.style.height = previous.height || "";
+    root.style.overflow = previous.overflow || "";
+    sheet.style.transform = previous.transform || "";
+    sheet.style.width = previous.widthSheet || "";
+    delete root.dataset.printScale;
+    delete root.dataset.printPrevious;
+  };
+
+  useEffect(() => {
+    window.addEventListener("beforeprint", fitPrintToPage);
+    window.addEventListener("afterprint", resetPrintFit);
+    return () => {
+      window.removeEventListener("beforeprint", fitPrintToPage);
+      window.removeEventListener("afterprint", resetPrintFit);
+    };
+  });
+
+  const handlePrint = () => {
+    fitPrintToPage();
+    window.print();
+  };
 
   const person = people[active] || people[0];
   const progress = Math.round((Math.min(step, 2) / 2) * 100);
@@ -1143,7 +1206,7 @@ export default function App() {
               <button className="btn ghost" onClick={restart}>Recommencer</button>
               <button className="btn ghost" onClick={() => setStep(0)}>← Modifier mes infos</button>
               <button className="btn ghost" onClick={() => setPrintPreview(true)}>Aperçu</button>
-              <button className="btn ghost" onClick={() => window.print()}>🖨️ Imprimer / Télécharger</button>
+              <button className="btn ghost" onClick={handlePrint}>🖨️ Imprimer / Télécharger</button>
               <button className="btn ghost" disabled={exporting} onClick={exportPNG}>
                 {exporting ? "Export..." : "Export PNG"}
               </button>
@@ -1167,7 +1230,7 @@ export default function App() {
         </footer>
       )}
 
-      {result && <div id="print-root">{renderPrintGrid({ id: "print-grid-document" })}</div>}
+      {result && <div id="print-root" ref={printRootRef}>{renderPrintGrid({ id: "print-grid-document" })}</div>}
 
       {printPreview && (
         <div className="print-preview-overlay no-print" role="dialog" aria-modal="true" aria-label="Aperçu du planning">
@@ -1311,7 +1374,7 @@ html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff;
   #print-root, #print-root * { visibility:visible !important; }
   #print-root { display:block !important; position:absolute !important; inset:0 !important; width:100% !important; height:auto !important; }
   #print-root .print-grid-wrap { display:block !important; width:100% !important; color:#151515; }
-  #print-root .print-sheet { position:relative; width:100%; height:calc(100vh - 16mm); max-height:calc(100vh - 16mm); overflow:hidden; background:#fffdf8 !important; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; transform-origin:top left; }
+  #print-root .print-sheet { position:relative; width:100%; max-height:none; overflow:hidden; background:#fffdf8 !important; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; transform-origin:top left; }
   #print-root .print-grid-wrap { break-inside:avoid; page-break-inside:avoid; }
   #print-root .print-title { color:var(--print-accent,#7c3aed) !important; }
   #print-root .print-bg-image, #print-root .print-day-image { display:block !important; }
