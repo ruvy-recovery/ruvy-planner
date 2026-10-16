@@ -595,8 +595,15 @@ export default function App() {
   const buildDay = (d) => {
     const items = [];
     result.plans.forEach((p, pi) => {
-      p.events.forEach((e, ei) => {
+      const planEvents = Array.isArray(p.events) ? p.events : [];
+      planEvents.forEach((e, ei) => {
         if (e.day === d) items.push({ ...e, owner: pi, ownerName: p.name, evIndex: ei });
+      });
+      // Fallback for persisted/legacy results: never lose the user's fixed sessions.
+      const baseFixed = Array.isArray(people[pi]?.fixed) ? people[pi].fixed : [];
+      baseFixed.forEach((fixed) => {
+        const exists = planEvents.some((e) => isFixedEvent(e, [fixed]));
+        if (!exists && fixed.day === d) items.push({ ...fixed, fixed: true, owner: pi, ownerName: p.name, evIndex: -1 });
       });
     });
 
@@ -627,25 +634,35 @@ export default function App() {
     return merged;
   };
 
-  const renderPrintGrid = () => {
+  const renderPrintGrid = ({ id, preview = false } = {}) => {
     if (!result) return null;
-    const start = Math.max(5, Math.min(23, Number(person?.firstSessionHour) || 6));
+    const start = Math.max(0, Math.min(23, Number(person?.firstSessionHour) || 6));
     const end = Math.max(start, Math.min(23, Number(person?.lastSessionHour) || 22));
     const hours = Array.from({ length: end - start + 1 }, (_, i) => start + i);
-    const eventsAt = (day, hour) => result.plans.flatMap((p, owner) =>
-      (p.events || []).filter((e) => e.day === day && Number(String(e.start || "").split(":")[0]) === hour)
-        .map((e) => ({ ...e, owner, ownerName: p.name }))
-    );
-    return <div className="print-grid-wrap" aria-label="Grille imprimable du planning">
-      <h2 className="print-title">{style.title || "Mon planning"}</h2>
-      <table className="print-grid"><thead><tr><th>Heure</th>{DAYS.map((d) => <th key={d}>{d}</th>)}</tr></thead>
-        <tbody>{hours.map((hour) => <tr key={hour}><th>{hour}h</th>{DAYS.map((day) => {
-          const events = eventsAt(day, hour);
-          return <td key={day}>{events.length ? events.map((e, i) => <div key={i} className="print-event"><strong>{e.title}</strong><span>{e.start} – {e.end}</span>{couple && <small>{e.ownerName}</small>}</div>) : <span className="print-rest">Repos</span>}</td>;
-        })}</tr>)}</tbody></table>
+    const eventColor = (event) => {
+      if (event?.together) return { bg: event.bgColor || event.color || style.blockColor || "#f5f0ff", border: event.borderColor || style.accent || "#7c3aed", text: event.textColor || style.textColor || "#151515" };
+      if (event?.bgColor || event?.color) return { bg: event.bgColor || event.color, border: event.borderColor || style.accent || "#7c3aed", text: event.textColor || style.textColor || "#151515" };
+      if (style.blockColor) return { bg: style.blockColor, border: style.accent || "#7c3aed", text: style.textColor || "#151515" };
+      return COLORS[event?.owner] || COLORS[0];
+    };
+    const eventsAt = (day, hour) => buildDay(day).filter((e) => Number(String(e.start || "").split(":")[0]) === hour);
+    return <div id={id} className={`print-grid-wrap${preview ? " print-grid-preview" : ""}`} aria-label="Grille imprimable du planning">
+      <div className="print-sheet" style={{ background: style.bgColor, color: style.textColor || "#151515", "--print-accent": style.accent || "#7c3aed" }}>
+        {style.bgImage && <div className="print-bg-image" style={{ backgroundImage: `url(${style.bgImage})`, opacity: style.bgOpacity }} />}
+        {(style.stickers || []).map((sticker, i) => <span key={i} className="print-sticker" style={{ left: `${sticker.x}%`, top: `${sticker.y}%`, fontSize: `${sticker.size || 28}px`, transform: `rotate(${sticker.rotation || 0}deg)` }}>{sticker.emoji}</span>)}
+        <h2 className="print-title">{style.title || "Mon planning"}</h2>
+        <table className="print-grid"><thead><tr><th>Heure</th>{DAYS.map((d) => <th key={d}>{d}</th>)}</tr></thead>
+          <tbody>{hours.map((hour) => <tr key={hour}><th>{hour}h</th>{DAYS.map((day) => {
+            const events = eventsAt(day, hour);
+            const dayImg = style.dayImages?.[day];
+            return <td key={day} style={{ position: "relative", overflow: "hidden" }}>
+              {dayImg && <span className="print-day-image" style={{ backgroundImage: `url(${dayImg})`, opacity: style.dayImageOpacity }} />}
+              <span className="print-cell-content">{events.length ? events.map((e, i) => { const c = eventColor(e); return <span key={i} className="print-event" style={{ background: c.bg, borderLeftColor: c.border, color: c.text }}><strong>{e.title}</strong><span>{e.start} – {e.end}</span>{couple && <small>{e.together ? "Ensemble" : e.ownerName}</small>}</span>; }) : <span className="print-rest">Repos</span>}</span>
+            </td>;
+          })}</tr>)}</tbody></table>
+      </div>
     </div>;
   };
-
   const renderWeek = (interactive) => (
     <div className="week-frame" aria-label="Cadre du planning à sept jours">
     <div className="week">
@@ -681,8 +698,8 @@ export default function App() {
               {merged.length === 0 && <div className="rest">Libre</div>}
               {merged.map((e, i) => {
                 const c = e.together
-                  ? { bg: style.blockColor || "#f5f0ff", border: "#7c3aed" }
-                  : style.blockColor ? { bg: style.blockColor, border: style.accent } : (COLORS[e.owner] || COLORS[0]);
+                  ? { bg: e.bgColor || e.color || style.blockColor || "#f5f0ff", border: e.borderColor || style.accent || "#7c3aed" }
+                  : (e.bgColor || e.color) ? { bg: e.bgColor || e.color, border: e.borderColor || style.accent } : style.blockColor ? { bg: style.blockColor, border: style.accent } : (COLORS[e.owner] || COLORS[0]);
                 const warns = interactive && !e.together ? warningsFor(e.owner, e.evIndex) : [];
                 const canEdit = interactive && !e.fixed && !e.together;
                 return (
@@ -1142,9 +1159,11 @@ export default function App() {
         </footer>
       )}
 
+      {result && <div id="print-root">{renderPrintGrid({ id: "print-grid-document" })}</div>}
+
       {printPreview && (
         <div className="print-preview-overlay no-print" role="dialog" aria-modal="true" aria-label="Aperçu du planning">
-          <div className="print-preview-modal"><button className="btn ghost print-preview-close" onClick={() => setPrintPreview(false)}>Fermer</button>{renderPrintGrid()}</div>
+          <div className="print-preview-modal"><button className="btn ghost print-preview-close" onClick={() => setPrintPreview(false)}>Fermer</button>{renderPrintGrid({ preview: true })}</div>
         </div>
       )}
     </div>
@@ -1267,12 +1286,27 @@ html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff;
 @media (max-width: 1050px) { .editor-workspace { grid-template-columns:180px minmax(260px,1fr) minmax(320px,1fr); gap:12px; } }
 @media (max-width: 760px) { .editor-workspace { display:block; } .editor-workspace .editor-sidebar, .editor-workspace .editor-panel, .editor-workspace .plan-card { position:static; } .editor-workspace .editor-layout { display:block; } .editor-workspace .plan-card { margin-top:14px; } }
 
+#print-root { display:none; }
+.print-grid-wrap { position:relative; width:100%; }
+.print-sheet { position:relative; padding:10px; border:1px solid var(--print-accent,#7c3aed); overflow:hidden; }
+.print-bg-image { position:absolute; inset:0; background-size:cover; background-position:center; pointer-events:none; }
+.print-sticker { position:absolute; z-index:2; pointer-events:none; filter:drop-shadow(0 2px 3px rgba(0,0,0,.2)); }
+.print-title, .print-grid { position:relative; z-index:3; }
+.print-grid td { height:28px; }
+.print-day-image { position:absolute; inset:0; background-size:cover; background-position:center; pointer-events:none; }
+.print-cell-content { position:relative; z-index:1; display:block; }
+
 @media print {
   @page { size: A4 landscape; margin: 8mm; }
-  .editor-layout, .no-print, .week-frame, .plan-card .export-zone, .plan-card > .editor, .plan-card > .hint { display:none !important; }
-  body, .app, .editor-workspace, .editor-workspace .plan-card { background:#fff !important; color:#151515 !important; }
-  .app { max-width:none; padding:0; }.editor-workspace { display:block; }.editor-workspace .plan-card { display:block; border:0; box-shadow:none; margin:0; padding:0; }
-  .print-grid-wrap { --print-accent: var(--atelier-event-bg, #7c3aed); display:block !important; color:#151515; }.print-grid-wrap .print-title { color: var(--print-accent); }
+  html, body { margin:0 !important; background:#fff !important; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
+  body * { visibility:hidden !important; }
+  #print-root, #print-root * { visibility:visible !important; }
+  #print-root { display:block !important; position:absolute !important; inset:0 !important; width:100% !important; height:auto !important; }
+  #print-root .print-grid-wrap { display:block !important; width:100% !important; color:#151515; }
+  #print-root .print-sheet { position:relative; min-height:100%; overflow:hidden; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
+  #print-root .print-title { color:var(--print-accent,#7c3aed) !important; }
+  #print-root .print-bg-image, #print-root .print-day-image { display:block !important; }
+  .print-preview-overlay { display:none !important; }
 }
 
 .paint-canvas { position:absolute; inset:0; width:100%; height:100%; z-index:8; touch-action:none; cursor:crosshair; }
