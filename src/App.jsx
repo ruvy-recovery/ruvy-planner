@@ -6,16 +6,6 @@ import jsPDF from "jspdf";
 const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
 const SHORT = { Lundi: "Lun", Mardi: "Mar", Mercredi: "Mer", Jeudi: "Jeu", Vendredi: "Ven", Samedi: "Sam", Dimanche: "Dim" };
 
-const THEMES = {
-  aurora: { label: "Aurora", bg: "#071b2b", surface: "#0d2f3b", surfaceAlt: "#123f48", text: "#e4fbf4", muted: "#a6d4cf", border: "#246878", accent: "#55d6be", button: "#147d78" },
-  sunset: { label: "Sunset", bg: "#321525", surface: "#4b1f2e", surfaceAlt: "#672d35", text: "#fff0e5", muted: "#e9b9ae", border: "#9b4b50", accent: "#ff9a62", button: "#d85a4a" },
-  foret: { label: "Forêt", bg: "#0c211b", surface: "#14382b", surfaceAlt: "#1c4a36", text: "#e9f7e9", muted: "#acd0b0", border: "#34734e", accent: "#79c267", button: "#28734b" },
-  lavande: { label: "Lavande", bg: "#171229", surface: "#282044", surfaceAlt: "#382b5c", text: "#f2edff", muted: "#c9bee5", border: "#62508f", accent: "#b99cff", button: "#7654c8" },
-  nuit: { label: "Nuit violette", bg: "#100d1c", surface: "#1d1730", surfaceAlt: "#2a2145", text: "#f0eaff", muted: "#bdb4d2", border: "#514377", accent: "#a889ff", button: "#6848b8" },
-};
-
-const HOUR_OPTIONS = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, "0")}:00`);
-
 const LEVELS = [
   { id: "debutant", label: "Débutant", desc: "Moins de 6 mois de pratique" },
   { id: "intermediaire", label: "Intermédiaire", desc: "Entre 6 mois et 2 ans" },
@@ -45,6 +35,12 @@ const CATEGORIES = [
 
 const STORAGE_KEY = "ruvy-planner-v2";
 const MAX_SHIFT_MIN = 30;
+const THEMES = {
+  Aurora: { bgColor: "#102a2b", cardColor: "#164e63", textColor: "#dff7f0", titleColor: "#99f6e4", buttonColor: "#0d9488", fieldColor: "#123d43", borderColor: "#2dd4bf" },
+  Sunset: { bgColor: "#3b1724", cardColor: "#6b2639", textColor: "#fff1e6", titleColor: "#fdba74", buttonColor: "#ea580c", fieldColor: "#522033", borderColor: "#fb7185" },
+  Forêt: { bgColor: "#10261b", cardColor: "#1f4d35", textColor: "#ecfdf5", titleColor: "#86efac", buttonColor: "#15803d", fieldColor: "#183b2a", borderColor: "#4ade80" },
+  Violet: { bgColor: "#18132c", cardColor: "#271b49", textColor: "#f5f3ff", titleColor: "#c4b5fd", buttonColor: "#7c3aed", fieldColor: "#21183c", borderColor: "#a78bfa" },
+};
 
 function classify(title) {
   const t = String(title).toLowerCase();
@@ -57,7 +53,33 @@ function classify(title) {
 function groupFixed(list) {
   const map = new Map();
   list.forEach((a, index) => {
-    const key = `${a.title.toLowerCase()}|${a.start}|${a.end}`;
+    const key = `${a.title.toLowerCase()}|${a.start}|${a.end}
+.theme-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.theme { padding: 9px 14px; border: 1px solid var(--theme-border, #a78bfa); border-radius: 10px; cursor: pointer; background: var(--theme-card, #271b49); color: var(--theme-text, #f5f3ff); }
+.theme-surface { background: var(--theme-bg, #fff) !important; color: var(--theme-text, #151515); border-color: var(--theme-border, #ebebe8); }
+.theme-surface h2, .theme-surface .label { color: var(--theme-title, inherit); }
+.theme-surface .input, .theme-surface .color { background: var(--theme-field, #fff); color: var(--theme-text, #151515); border-color: var(--theme-border, #e0e0dc); }
+.theme-surface .btn { background: var(--theme-button, #14532d); border-color: var(--theme-border, #14532d); }
+.export-zone .day, .export-zone .common { background: var(--theme-card, rgba(255,255,255,.6)); border-color: var(--theme-border, #ececE8); }
+.export-zone .day h3, .export-zone .legend-item, .export-zone .hint { color: var(--theme-text, inherit); }
+.print-week { display: none; }
+@media print {
+  @page { size: landscape; margin: 8mm; }
+  body { background: var(--theme-bg, #fff) !important; }
+  .no-print, .screen-plan-title, .plan-summary, .export-zone .week, .export-zone .common { display:none !important; }
+  .plan-card { border:0; box-shadow:none; margin:0; padding:0; }
+  .export-zone { background: var(--theme-bg, #fff) !important; color: var(--theme-text, #151515) !important; width: 100%; min-height: 100vh; }
+  .print-week { display: grid; grid-template-columns: 38px repeat(7, 1fr); gap: 1px; background: var(--theme-border, #aaa); height: 188mm; }
+  .print-corner, .print-day-head, .print-hour, .print-cell { background: var(--theme-card, #fff); color: var(--theme-text, #151515); }
+  .print-corner, .print-day-head { padding: 5px 3px; text-align: center; font-weight: 700; font-size: 10px; }
+  .print-hour { padding: 4px 2px; text-align: right; font-size: 9px; }
+  .print-cell { position: relative; min-width: 0; overflow: visible; min-height: 22px; }
+  .print-rest { display: block; color: #888; text-align: center; font-size: 9px; margin-top: 8px; }
+  .print-event { position: absolute; z-index: 2; overflow: hidden; padding: 3px; border-radius: 3px; color: #fff; font-size: 9px; line-height: 1.1; border: 1px solid rgba(0,0,0,.18); }
+  .print-event.owner-0 { background: #2563eb; }
+  .print-event.owner-1 { background: #92400e; }
+}
+`;
     if (!map.has(key)) {
       map.set(key, { title: a.title, start: a.start, end: a.end, days: [], indexes: [] });
     }
@@ -90,19 +112,17 @@ const emptyPerson = (name) => ({
   maxSessions: 3,
   earliest: "06:00",
   latest: "22:00",
-  scheduleStart: "06:00",
-  scheduleEnd: "22:00",
 });
 
 const defaultStyle = {
   title: "Mon planning",
-  bgColor: "",
+  bgColor: "#ffffff",
   bgImage: "",
   bgOpacity: 0.25,
   dayImages: {},
   dayImageOpacity: 0.3,
-  accent: "#14532d",
-  theme: "nuit",
+  accent: "#a78bfa",
+  ...THEMES.Violet,
 };
 
 function loadSaved() {
@@ -127,7 +147,7 @@ export default function App() {
   const saved = useRef(loadSaved()).current;
 
   const [couple, setCouple] = useState(saved?.couple ?? false);
-  const [people, setPeople] = useState((saved?.people ?? [emptyPerson("Toi")]).map((p) => ({ ...emptyPerson(p.name || "Toi"), ...p, scheduleStart: p.scheduleStart || p.earliest || "06:00", scheduleEnd: p.scheduleEnd || p.latest || "22:00" })));
+  const [people, setPeople] = useState(saved?.people ?? [emptyPerson("Toi")]);
   const [active, setActive] = useState(0);
   const [step, setStep] = useState(saved?.step ?? 0);
   const [loading, setLoading] = useState(false);
@@ -135,10 +155,8 @@ export default function App() {
   const [result, setResult] = useState(saved?.result ?? null);
   const [style, setStyle] = useState({ ...defaultStyle, ...(saved?.style ?? {}) });
   const [exporting, setExporting] = useState(false);
-
-  const theme = THEMES[style.theme] || THEMES.nuit;
-  const themeVars = { "--theme-bg": theme.bg, "--theme-surface": theme.surface, "--theme-surface-alt": theme.surfaceAlt, "--theme-text": theme.text, "--theme-muted": theme.muted, "--theme-border": theme.border, "--theme-accent": theme.accent, "--theme-button": theme.button };
-  useEffect(() => { document.body.style.background = theme.bg; return () => { document.body.style.background = ""; }; }, [theme.bg]);
+  const [printStart, setPrintStart] = useState(saved?.printStart ?? 6);
+  const [printEnd, setPrintEnd] = useState(saved?.printEnd ?? 22);
 
   const [draft, setDraft] = useState({ title: "", days: [], start: "18:00", end: "19:00" });
   const [wantDraft, setWantDraft] = useState("");
@@ -156,12 +174,12 @@ export default function App() {
     try {
       localStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ couple, people, step, result, style })
+        JSON.stringify({ couple, people, step, result, style, printStart, printEnd })
       );
     } catch (e) {
       // quota dépassé (images trop lourdes) : on ignore sans casser l'app
     }
-  }, [couple, people, step, result, style]);
+  }, [couple, people, step, result, style, printStart, printEnd]);
 
   const update = (patch) =>
     setPeople((prev) => prev.map((p, i) => (i === active ? { ...p, ...patch } : p)));
@@ -348,7 +366,7 @@ export default function App() {
     if (!exportRef.current) return null;
     return html2canvas(exportRef.current, {
       scale: 2,
-      backgroundColor: style.bgColor || theme.bg,
+      backgroundColor: style.bgColor,
       useCORS: true,
     });
   };
@@ -386,6 +404,28 @@ export default function App() {
     }
   };
 
+  const applyTheme = (name) => setStyleKey({ ...THEMES[name], theme: name });
+
+  const printRows = Array.from({ length: Math.max(1, Number(printEnd) - Number(printStart) + 1) }, (_, i) => Number(printStart) + i);
+  const printEvents = (day) => result.plans.flatMap((p, pi) => p.events.filter((e) => e.day === day).map((e) => ({ ...e, owner: pi })));
+
+  const renderPrintWeek = () => (
+    <div className="print-week" aria-label="Planning imprimé">
+      <div className="print-corner">Heure</div>
+      {DAYS.map((d) => <div key={d} className="print-day-head">{d}</div>)}
+      {printRows.map((hour) => <>
+        <div key={`h-${hour}`} className="print-hour">{String(hour).padStart(2, "0")}h</div>
+        {DAYS.map((d) => {
+          const events = printEvents(d).filter((e) => toMin(e.start) >= hour * 60 && toMin(e.start) < (hour + 1) * 60);
+          return <div key={`${d}-${hour}`} className="print-cell">
+            {hour === printRows[0] && events.length === 0 && printEvents(d).length === 0 && <span className="print-rest">Repos</span>}
+            {events.map((e, i) => <div key={i} className={`print-event owner-${e.owner}`} style={{ top: `${(toMin(e.start) % 60) / 60 * 100}%`, height: `${Math.max(18, (toMin(e.end) - toMin(e.start)) / 60 * 100)}%`, left: `${i * 50}%`, width: `${100 / Math.max(1, events.length)}%` }}>{e.title}</div>)}
+          </div>;
+        })}
+      </>)}
+    </div>
+  );
+
   const groups = groupFixed(person.fixed);
 
   // ----- Construction de la semaine (réutilisée pour l'affichage) -----
@@ -422,48 +462,6 @@ export default function App() {
     });
     merged.sort((x, y) => x.start.localeCompare(y.start));
     return merged;
-  };
-
-  const selectedScheduleStart = (people[0]?.scheduleStart || people[0]?.earliest || "06:00");
-  const selectedScheduleEnd = (people[0]?.scheduleEnd || people[0]?.latest || "22:00");
-  const printStartHour = Math.min(23, Math.max(0, Number(selectedScheduleStart.slice(0, 2)) || 6));
-  const printEndHour = Math.max(printStartHour + 1, Math.min(24, Number(selectedScheduleEnd.slice(0, 2)) || 22));
-  const printHours = Array.from({ length: printEndHour - printStartHour }, (_, i) => printStartHour + i);
-
-  const renderPrintWeek = () => {
-    const restDays = new Set(result.plans.map((p) => p.restDay).filter(Boolean));
-    return (
-      <div className="print-planning">
-        <div className="print-title">{style.title || (couple ? "Votre planning" : `Planning de ${result.plans[0].name}`)}</div>
-        <div className="print-grid" style={{ gridTemplateRows: `30px repeat(${printHours.length}, 1fr)`, "--print-hours": printHours.length }}>
-          <div className="print-time-head" />
-          {DAYS.map((d) => <div key={d} className={`print-day-head ${restDays.has(d) ? "print-rest" : ""}`}>{d}</div>)}
-          {printHours.map((h) => <div key={`t-${h}`} className="print-time">{String(h).padStart(2, "0")}:00</div>)}
-          {DAYS.map((d, dayIndex) => {
-            const events = buildDay(d).filter((e) => toMin(e.end) > toMin(e.start));
-            const lanes = [];
-            const placed = events.map((e) => {
-              let lane = 0;
-              while (lanes[lane]?.some((x) => overlaps(x, e))) lane++;
-              (lanes[lane] ||= []).push(e);
-              return { ...e, lane };
-            });
-            const laneCount = Math.max(1, lanes.length);
-            return (
-              <div key={d} className={`print-day-column ${restDays.has(d) ? "print-rest" : ""}`} style={{ gridColumn: dayIndex + 2 }}>
-                {restDays.has(d) && <div className="print-rest-label">Repos</div>}
-                {placed.map((e, i) => {
-                  const top = ((toMin(e.start) - printStartHour * 60) / 60) * 100;
-                  const height = ((toMin(e.end) - toMin(e.start)) / 60) * 100;
-                  const c = e.together ? { bg: "#f5f0ff", border: "#7c3aed" } : (COLORS[e.owner] || COLORS[0]);
-                  return <div key={i} className="print-event" style={{ top: `${top}%`, height: `${height}%`, left: `calc(${e.lane} * ${100 / laneCount}%)`, width: `${100 / laneCount}%`, background: c.bg, borderColor: c.border }}>{e.title}</div>;
-                })}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
   };
 
   const renderWeek = (interactive) => (
@@ -578,7 +576,7 @@ export default function App() {
   };
 
   return (
-    <div className="app" style={themeVars}>
+    <div className="app">
       <style>{css}</style>
 
       <header className="top no-print">
@@ -721,6 +719,17 @@ export default function App() {
           <h2>Ce que tu veux ajouter</h2>
           <p className="hint">Chaque activité peut avoir ses propres réglages : nombre de séances, moments et jours préférés.</p>
 
+          <h2>Plage horaire du planning</h2>
+          <p className="hint">Ces horaires servent à définir la grille d'impression. Ils ne bloquent jamais tes choix.</p>
+          <div className="row">
+            <label className="field">Première séance à
+              <input type="number" min="0" max="23" className="input" value={printStart} onChange={(e) => setPrintStart(Math.max(0, Math.min(23, Number(e.target.value) || 0)))} />
+            </label>
+            <label className="field">Dernière séance finit à
+              <input type="number" min="1" max="24" className="input" value={printEnd} onChange={(e) => setPrintEnd(Math.max(1, Math.min(24, Number(e.target.value) || 1)))} />
+            </label>
+          </div>
+
           <div className="row">
             <input
               className="input grow"
@@ -787,21 +796,6 @@ export default function App() {
               <div className="want-empty">Rien d'ajouté. Tu peux passer à l'étape suivante.</div>
             )}
           </div>
-
-          <h2>Plage horaire du planning</h2>
-          <p className="hint">Ces horaires servent aussi à l'impression. Ils restent indicatifs et ne bloquent jamais la génération.</p>
-          <div className="row">
-            <label className="field">Première séance à (heure)
-              <select className="input" value={person.scheduleStart || "06:00"} onChange={(e) => update({ scheduleStart: e.target.value })}>
-                {HOUR_OPTIONS.map((h) => <option key={h} value={h}>{h}</option>)}
-              </select>
-            </label>
-            <label className="field">Dernière séance finit à (heure)
-              <select className="input" value={person.scheduleEnd || "22:00"} onChange={(e) => update({ scheduleEnd: e.target.value })}>
-                {HOUR_OPTIONS.map((h) => <option key={h} value={h}>{h}</option>)}
-              </select>
-            </label>
-          </div>
         </section>
       )}
 
@@ -854,7 +848,7 @@ export default function App() {
       {step === 4 && result && (
         <>
           {/* Panneau de personnalisation (une seule page pour les deux) */}
-          <section className="card no-print">
+          <section className="card no-print theme-surface" style={{ "--theme-bg": style.bgColor, "--theme-card": style.cardColor, "--theme-text": style.textColor, "--theme-title": style.titleColor, "--theme-button": style.buttonColor, "--theme-field": style.fieldColor, "--theme-border": style.borderColor }}>
             <h2>Personnalisation</h2>
             <p className="hint">
               {couple
@@ -863,9 +857,9 @@ export default function App() {
             </p>
 
             <label className="label">Thème</label>
-            <select className="input full" value={style.theme || "nuit"} onChange={(e) => setStyleKey({ theme: e.target.value })}>
-              {Object.entries(THEMES).map(([id, t]) => <option key={id} value={id}>{t.label}</option>)}
-            </select>
+            <div className="theme-row">
+              {Object.keys(THEMES).map((name) => <button key={name} className="theme" onClick={() => applyTheme(name)}>{name}</button>)}
+            </div>
 
             <label className="label">Titre du planning</label>
             <input
@@ -879,7 +873,7 @@ export default function App() {
                 <input
                   type="color"
                   className="color"
-                  value={style.bgColor || theme.bg}
+                  value={style.bgColor}
                   onChange={(e) => setStyleKey({ bgColor: e.target.value })}
                 />
               </label>
@@ -948,7 +942,7 @@ export default function App() {
             <div
               ref={exportRef}
               className="export-zone"
-              style={{ background: style.bgColor || theme.bg, position: "relative", overflow: "hidden" }}
+              style={{ background: style.bgColor, color: style.textColor, position: "relative", overflow: "hidden", "--theme-bg": style.bgColor, "--theme-card": style.cardColor, "--theme-text": style.textColor, "--theme-title": style.titleColor, "--theme-button": style.buttonColor, "--theme-field": style.fieldColor, "--theme-border": style.borderColor }}
             >
               {style.bgImage && (
                 <div
@@ -965,7 +959,7 @@ export default function App() {
               )}
 
               <div style={{ position: "relative", padding: 20 }}>
-                <h2 style={{ color: style.accent, marginTop: 0 }}>
+                <h2 className="screen-plan-title" style={{ color: style.titleColor || style.accent, marginTop: 0 }}>
                   {style.title || (couple ? "Votre planning" : `Planning de ${result.plans[0].name}`)}
                 </h2>
 
@@ -991,13 +985,13 @@ export default function App() {
                 )}
 
                 {result.plans.map((p, i) => (
-                  <p key={i} className="hint no-print">
+                  <p key={i} className="hint plan-summary">
                     {p.name} : {p.sessionsAdded} séance(s) ajoutée(s) sur {p.sessionsTarget} prévue(s).
                     {p.restDay ? ` Repos : ${p.restDay}.` : ""}
                   </p>
                 ))}
 
-                <div className="screen-week">{renderWeek(!exporting)}</div>
+                {renderWeek(!exporting)}
                 {renderPrintWeek()}
 
                 {couple && result.commonSlots?.length > 0 && (
@@ -1126,42 +1120,3 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .common { margin-top: 32px; }
 .wants { display: flex; flex-direction: column; gap: 14px; margin-top: 20px; }
 .want-card { border: 1px solid #ececE8; border-radius: 14px; padding: 18px; display: flex
-
-/* Thèmes globaux, sans modifier la vue de planning existante */
-body { background: var(--theme-bg, #f7f7f5); color: var(--theme-text, #151515); }
-.app { color: var(--theme-text, #151515); }
-.app .top p, .app .hint, .app .field, .app .list small, .app .choice span, .app .event span { color: var(--theme-muted, #6b6b6b); }
-.app .card, .app .tab, .app .choice, .app .input, .app .btn.ghost, .app .chip, .app .list li { background: var(--theme-surface, #fff); color: var(--theme-text, #151515); border-color: var(--theme-border, #e0e0dc); }
-.app .card h2, .app .top h1, .app .day h3, .app .choice, .app .chip, .app .tab { color: var(--theme-text, #151515); }
-.app .form-block { background: var(--theme-surface-alt, #fafaf8); border-color: var(--theme-border, #efefeb); }
-.app .btn:not(.ghost), .app .chip.on { background: var(--theme-button, #14532d); border-color: var(--theme-button, #14532d); }
-.app .btn:not(.ghost):hover:not(:disabled) { filter: brightness(.9); }
-.app .choice.on { background: color-mix(in srgb, var(--theme-accent) 18%, var(--theme-surface)); border-color: var(--theme-accent); }
-.app .fill { background: var(--theme-accent); }
-.app .progress-labels .on, .app .link-btn { color: var(--theme-accent); }
-.app .bar { background: var(--theme-border); }
-.app .day, .app .want-card, .app .editor { border-color: var(--theme-border); background: color-mix(in srgb, var(--theme-surface) 82%, transparent); }
-.app .tag { background: var(--theme-surface-alt); color: var(--theme-muted); }
-.app .export-zone { color: var(--theme-text); }
-.print-planning { display: none; }
-@media print {
-  @page { size: landscape; margin: 6mm; }
-  html, body { background: var(--theme-bg) !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .no-print, .screen-week, .common { display: none !important; }
-  .app { max-width: none; padding: 0; background: var(--theme-bg) !important; }
-  .card.plan-card { display: block !important; border: 0; padding: 0; margin: 0; background: transparent !important; box-shadow: none; }
-  .export-zone { min-height: 0; background: var(--theme-bg) !important; overflow: visible !important; }
-  .export-zone > div[style*="padding"] { padding: 0 !important; }
-  .export-zone > div[style*="padding"] > h2, .export-zone > div[style*="padding"] > .badge-ia, .export-zone > div[style*="padding"] > .legend { display: none !important; }
-  .print-planning { display: block; color: var(--theme-text); break-inside: avoid; }
-  .print-title { font-size: 20px; font-weight: 700; margin: 0 0 4mm; color: var(--theme-accent); }
-  .print-grid { display: grid; grid-template-columns: 12mm repeat(7, 1fr); grid-auto-flow: column; border: 1px solid var(--theme-border); height: 185mm; position: relative; }
-  .print-day-head { grid-row: 1; padding: 5px 2px; text-align: center; font-weight: 700; font-size: 10px; border-left: 1px solid var(--theme-border); background: var(--theme-surface-alt); }
-  .print-time-head { grid-column: 1; grid-row: 1; background: var(--theme-surface-alt); }
-  .print-time { grid-column: 1; padding: 2px; text-align: right; font-size: 8px; color: var(--theme-muted); border-top: 1px solid color-mix(in srgb, var(--theme-border) 60%, transparent); }
-  .print-day-column { position: relative; grid-row: 2 / span var(--print-hours, 16); min-width: 0; border-left: 1px solid var(--theme-border); background: repeating-linear-gradient(to bottom, transparent 0, transparent calc(100% / 16 - 1px), color-mix(in srgb, var(--theme-border) 55%, transparent) calc(100% / 16 - 1px), color-mix(in srgb, var(--theme-border) 55%, transparent) calc(100% / 16)); }
-  .print-rest { background: color-mix(in srgb, var(--theme-border) 34%, var(--theme-surface)) !important; }
-  .print-rest-label { position: absolute; inset: 45% 0 auto; text-align: center; font-weight: 700; font-size: 11px; color: var(--theme-muted); }
-  .print-event { position: absolute; box-sizing: border-box; padding: 3px; overflow: hidden; border-left: 3px solid; border-radius: 3px; font-size: 9px; line-height: 1.15; color: #151515; z-index: 2; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-}
-`;
