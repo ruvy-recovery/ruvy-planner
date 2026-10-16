@@ -761,13 +761,20 @@ export default function App() {
       return { bg: personColor, border: theme.border, text: theme.sessionText };
     };
     const eventsAt = (day, hour) => buildDay(day, false).filter((e) => Number(String(e.start || "").split(":")[0]) === hour);
+    // N'afficher que les heures qui contiennent au moins une séance sur la semaine.
+    // Pendant un déplacement, on garde toutes les heures de la plage pour permettre
+    // de déposer une séance dans une ligne qui était vide avant le drag.
+    const visibleHours = draggingEvent
+      ? hours
+      : hours.filter((hour) => DAYS.some((day) => eventsAt(day, hour).length > 0));
+    const displayHours = visibleHours.length ? visibleHours : [start];
     return <div id={id} className={`print-grid-wrap${preview ? " print-grid-preview" : ""}`} aria-label="Grille imprimable du planning">
       <div className="print-sheet" style={{ background: (themeId === "base" ? style.bgColor : theme.planning), color: (themeId === "base" ? (style.textColor || "#151515") : theme.text), "--print-bg": (themeId === "base" ? style.bgColor : theme.planning), "--print-text": (themeId === "base" ? (style.textColor || "#151515") : theme.text), "--print-border": theme.border, "--print-header": theme.header, "--print-accent": (themeId === "base" ? (style.accent || "#14532d") : theme.button) }}>
         {style.bgImage && <div className="print-bg-image" style={{ backgroundImage: `url(${style.bgImage})`, opacity: style.bgOpacity }} />}
         {(style.stickers || []).map((sticker, i) => <span key={i} className="print-sticker" style={{ left: `${sticker.x}%`, top: `${sticker.y}%`, fontSize: `${sticker.size || 28}px`, transform: `rotate(${sticker.rotation || 0}deg)` }}>{sticker.emoji}</span>)}
         <h2 className="print-title">{style.title || "Mon planning"}</h2>
-        <table className="print-grid"><thead><tr><th>Heure</th>{DAYS.map((d) => <th key={d}>{d}</th>)}</tr></thead>
-          <tbody>{hours.map((hour) => <tr key={hour}><th>{hour}h</th>{DAYS.map((day) => {
+        <table className="print-grid"><thead><tr><th style={themeId === "base" ? { background: "#f97316", color: "#fff" } : undefined}>Heure</th>{DAYS.map((d) => <th key={d} style={themeId === "base" ? { background: "#f97316", color: "#fff" } : undefined}>{d}</th>)}</tr></thead>
+          <tbody>{displayHours.map((hour) => <tr key={hour}><th>{hour}h</th>{DAYS.map((day) => {
             const events = eventsAt(day, hour);
             const dayImg = style.dayImages?.[day];
             return <td key={day} style={{ position: "relative", overflow: "hidden" }}>
@@ -809,7 +816,7 @@ export default function App() {
               />
             )}
             <div style={{ position: "relative" }}>
-              <h3 style={{ color: theme.text, background: (themeId === "base" ? style.bgColor : theme.header), borderColor: theme.border }}>{d}</h3>
+              <h3 style={{ color: (themeId === "base" ? "#fff" : theme.text), background: (themeId === "base" ? "#f97316" : theme.header), borderColor: theme.border }}>{d}</h3>
               {merged.length === 0 && <div className="rest">Libre</div>}
               {merged.map((e, i) => {
                 const c = e.together
@@ -1421,7 +1428,17 @@ html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff;
   #print-root .print-grid-wrap { display:block !important; width:100% !important; color:#151515; }
   #print-root .print-sheet { position:relative; width:100%; max-height:none; overflow:hidden; background:var(--print-bg,#fffdf8) !important; color:var(--print-text,#151515) !important; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; transform-origin:top left; }
   #print-root .print-grid-wrap { break-inside:avoid; page-break-inside:avoid; }
-  #print-root .print-title { color:var(--print-accent,#7c3aed) !important; }
+  #print-root .print-title { color:var(--print-accent,#7c3aed) !important; font-size:14px !important; margin:0 0 4px !important; }
+  /* Impression A4 paysage : densité réduite pour tenir sur une seule page. */
+  #print-root .print-sheet { padding:5px !important; }
+  #print-root .print-grid { font-size:8.5px !important; }
+  #print-root .print-grid th, #print-root .print-grid td { padding:2px !important; line-height:1.1 !important; height:18px !important; }
+  #print-root .print-grid thead th { height:20px !important; font-size:9px !important; }
+  #print-root .print-grid tbody th { width:32px !important; }
+  #print-root .print-event { padding:1px 2px !important; margin:0 !important; border-left-width:2px !important; line-height:1.05 !important; }
+  #print-root .print-event strong { font-size:8.5px !important; }
+  #print-root .print-event span, #print-root .print-event small { font-size:7.5px !important; }
+  #print-root .print-rest { font-size:8px !important; }
   #print-root .print-bg-image, #print-root .print-day-image { display:block !important; }
   .print-preview-overlay { display:none !important; }
 }
