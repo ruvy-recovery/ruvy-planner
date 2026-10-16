@@ -650,16 +650,52 @@ export default function App() {
   const endPaint = () => { paintDrawingRef.current = false; };
   const undoPaint = () => { const last = paintHistory.at(-1); if (!last) return; setPaintFuture(f => [...f, snapshotCanvas()]); setPaintHistory(h => h.slice(0,-1)); const c=paintCanvasRef.current; if(c){c.getContext("2d").clearRect(0,0,c.width,c.height); restoreCanvas(last);} };
   const redoPaint = () => { const next = paintFuture.at(-1); if (!next) return; setPaintHistory(h => [...h, snapshotCanvas()]); setPaintFuture(f => f.slice(0,-1)); const c=paintCanvasRef.current; if(c){c.getContext("2d").clearRect(0,0,c.width,c.height); restoreCanvas(next);} };
-  const moveEvent = (e, day) => {
-    if (paintTool !== "move") return;
-    e.currentTarget.setPointerCapture?.(e.pointerId);
+  const eventDragRef = useRef(null);
+  const suppressEventClickRef = useRef(false);
+  const beginEventDrag = (e, day) => {
+    if (paintTool !== "move" || e.button === 2) return;
     const planIndex = Number(e.currentTarget.dataset.plan), eventIndex = Number(e.currentTarget.dataset.event);
-    const rect = e.currentTarget.parentElement.getBoundingClientRect();
-    const dayIndex = DAYS.indexOf(day); const nextDay = DAYS[Math.max(0, Math.min(6, Math.round((e.clientX - rect.left) / (rect.width / 7) - .5)))];
-    if (nextDay && nextDay !== day) updateEvent(planIndex, eventIndex, { day: nextDay });
-    setDraggingEvent({ planIndex, eventIndex });
+    if (eventIndex < 0 || result?.plans?.[planIndex]?.events?.[eventIndex]?.fixed) return;
+    eventDragRef.current = { planIndex, eventIndex, day, startX: e.clientX, startY: e.clientY, moved: false };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
   };
-  const finishMove = () => setDraggingEvent(null);
+  const moveEvent = (e) => {
+    const drag = eventDragRef.current;
+    if (!drag || paintTool !== "move") return;
+    const dx = e.clientX - drag.startX, dy = e.clientY - drag.startY;
+    if (!drag.moved && Math.hypot(dx, dy) < 5) return;
+    drag.moved = true;
+    setDraggingEvent({ planIndex: drag.planIndex, eventIndex: drag.eventIndex });
+  };
+  const finishMove = (e) => {
+    const drag = eventDragRef.current;
+    eventDragRef.current = null;
+    setDraggingEvent(null);
+    if (!drag?.moved || !result) return;
+    const source = result.plans[drag.planIndex]?.events?.[drag.eventIndex];
+    const hit = document.elementFromPoint(e.clientX, e.clientY)?.closest?.(".day");
+    const targetDay = hit?.dataset?.day || drag.day;
+    if (!source || !DAYS.includes(targetDay)) return;
+    const dayRect = hit?.getBoundingClientRect();
+    const duration = Math.max(1, toMin(source.end) - toMin(source.start));
+    const ratio = dayRect ? Math.max(0, Math.min(1, (e.clientY - dayRect.top) / dayRect.height)) : toMin(source.start) / 1440;
+    const startMin = Math.max(0, Math.min(1440 - duration, Math.round(ratio * 1440)));
+    const pad = (n) => String(Math.floor(n / 60)).padStart(2, "0") + ":" + String(n % 60).padStart(2, "0");
+    const targetEl = document.elementFromPoint(e.clientX, e.clientY)?.closest?.(".event");
+    const hitPlan = targetEl ? Number(targetEl.dataset.plan) : drag.planIndex;
+    const hitIndex = targetEl ? Number(targetEl.dataset.event) : -1;
+    const target = hitIndex >= 0 ? result.plans[hitPlan]?.events?.[hitIndex] : result.plans[drag.planIndex].events.find((ev, i) => i !== drag.eventIndex && !ev.fixed && ev.day === targetDay && startMin >= toMin(ev.start) && startMin < toMin(ev.end));
+    if (target && !target.fixed) {
+      const targetPlan = hitIndex >= 0 ? hitPlan : drag.planIndex;
+      const targetIndex = hitIndex >= 0 ? hitIndex : result.plans[drag.planIndex].events.indexOf(target);
+      updateEvent(drag.planIndex, drag.eventIndex, { day: target.day, start: target.start, end: target.end });
+      updateEvent(targetPlan, targetIndex, { day: source.day, start: source.start, end: source.end });
+    } else {
+      updateEvent(drag.planIndex, drag.eventIndex, { day: targetDay, start: pad(startMin), end: pad(startMin + duration) });
+    }
+    suppressEventClickRef.current = true;
+    window.setTimeout(() => { suppressEventClickRef.current = false; }, 80);
+  };
 
   const groups = groupFixed(person.fixed);
 
@@ -726,7 +762,7 @@ export default function App() {
     };
     const eventsAt = (day, hour) => buildDay(day, false).filter((e) => Number(String(e.start || "").split(":")[0]) === hour);
     return <div id={id} className={`print-grid-wrap${preview ? " print-grid-preview" : ""}`} aria-label="Grille imprimable du planning">
-      <div className="print-sheet" style={{ background: theme.planning, color: theme.text, "--print-bg": theme.planning, "--print-text": theme.text, "--print-border": theme.border, "--print-header": theme.header, "--print-accent": theme.button }}>
+      <div className="print-sheet" style={{ background: (themeId === "base" ? style.bgColor : theme.planning), color: (themeId === "base" ? (style.textColor || "#151515") : theme.text), "--print-bg": (themeId === "base" ? style.bgColor : theme.planning), "--print-text": (themeId === "base" ? (style.textColor || "#151515") : theme.text), "--print-border": theme.border, "--print-header": theme.header, "--print-accent": (themeId === "base" ? (style.accent || "#14532d") : theme.button) }}>
         {style.bgImage && <div className="print-bg-image" style={{ backgroundImage: `url(${style.bgImage})`, opacity: style.bgOpacity }} />}
         {(style.stickers || []).map((sticker, i) => <span key={i} className="print-sticker" style={{ left: `${sticker.x}%`, top: `${sticker.y}%`, fontSize: `${sticker.size || 28}px`, transform: `rotate(${sticker.rotation || 0}deg)` }}>{sticker.emoji}</span>)}
         <h2 className="print-title">{style.title || "Mon planning"}</h2>
@@ -749,7 +785,7 @@ export default function App() {
         const merged = buildDay(d);
         const dayImg = style.dayImages[d];
         return (
-          <div key={d} className="day" draggable={paintTool === "move"}
+          <div key={d} data-day={d} className="day" draggable={false}
             onDragStart={(e) => { atelierDayDragRef.current = d; e.dataTransfer.effectAllowed = "move"; }}
             onDragOver={(e) => { if (paintTool === "move") e.preventDefault(); }}
             onDrop={(e) => {
@@ -758,7 +794,7 @@ export default function App() {
               if (paintTool === "move" && from && from !== d) setAtelierDayOrder(order => { const next=[...order]; const a=next.indexOf(from), b=next.indexOf(d); [next[a],next[b]]=[next[b],next[a]]; return next; });
               atelierDayDragRef.current = null;
             }}
-            style={{ position: "relative", overflow: "hidden", backgroundColor: atelierDayOrder.indexOf(d) % 2 ? theme.cellAlt : theme.cell, borderColor: theme.border, color: theme.text }}>
+            style={{ position: "relative", overflow: "hidden", backgroundColor: atelierDayOrder.indexOf(d) % 2 ? (themeId === "base" ? style.bgColor : theme.cellAlt) : (themeId === "base" ? style.bgColor : theme.cell), borderColor: theme.border, color: (themeId === "base" ? (style.textColor || "#151515") : theme.text) }}>
             {dayImg && (
               <div
                 style={{
@@ -773,7 +809,7 @@ export default function App() {
               />
             )}
             <div style={{ position: "relative" }}>
-              <h3 style={{ color: theme.text, background: theme.header, borderColor: theme.border }}>{d}</h3>
+              <h3 style={{ color: theme.text, background: (themeId === "base" ? style.bgColor : theme.header), borderColor: theme.border }}>{d}</h3>
               {merged.length === 0 && <div className="rest">Libre</div>}
               {merged.map((e, i) => {
                 const c = e.together
@@ -786,8 +822,8 @@ export default function App() {
                     key={i}
                     className={(canEdit ? "event editable" : "event") + " event-reveal"}
                     data-plan={e.owner} data-event={e.evIndex}
-                    onPointerDown={(ev) => moveEvent(ev, d)} onPointerUp={finishMove}
-                    onClick={canEdit ? () => startEdit(e.owner, e.evIndex) : undefined}
+                    onPointerDown={(ev) => beginEventDrag(ev, d)} onPointerMove={moveEvent} onPointerUp={finishMove} onPointerCancel={() => { eventDragRef.current = null; setDraggingEvent(null); }}
+                    onClick={canEdit ? () => { if (!suppressEventClickRef.current) startEdit(e.owner, e.evIndex); } : undefined}
                     onDoubleClick={() => paintTool === "bucket" && setStyleKey({ blockColor: paintColor })}
                     style={{
                       background: c.bg,
@@ -870,7 +906,7 @@ export default function App() {
   };
 
   return (
-    <div className="app" style={{"--page":theme.page,"--panel":theme.panel,"--planning":theme.planning,"--border":theme.border,"--ink":theme.text,"--muted":theme.muted,"--button":theme.button}}>
+    <div className="app">
       <style>{css}</style>
 
       {cinematic && (
@@ -1141,7 +1177,7 @@ export default function App() {
             <div
               ref={exportRef}
               className="export-zone"
-              style={{ "--atelier-event-bg": style.blockColor || "transparent", background: theme.planning, color: theme.text, borderColor: theme.border, position: "relative", overflow: "hidden" }}
+              style={{ "--atelier-event-bg": style.blockColor || "transparent", background: (themeId === "base" ? style.bgColor : theme.planning), color: (themeId === "base" ? (style.textColor || "#151515") : theme.text), borderColor: theme.border, position: "relative", overflow: "hidden" }}
             >
               <canvas ref={paintCanvasRef} className="paint-canvas" style={{ pointerEvents: ["pen", "marker", "eraser", "bucket", "picker"].includes(paintTool) ? "auto" : "none" }} onPointerDown={(e) => { e.preventDefault(); handlePaintPointer(e); }} onMouseDown={(e) => e.preventDefault()} onPointerMove={(e) => { e.preventDefault(); paintDrawingRef.current && paintPoint(e); }} onPointerUp={endPaint} onPointerCancel={endPaint} aria-label="Dessin par-dessus le planning" />
               {style.bgImage && (
@@ -1160,7 +1196,7 @@ export default function App() {
 
               {(style.stickers || []).map((sticker, i) => <span key={i} className={`floating-sticker ${selectedSticker === i ? "selected" : ""}`} onPointerDown={(e) => startStickerDrag(e, i)} onPointerMove={moveSticker} onPointerUp={endStickerDrag} onPointerCancel={endStickerDrag} onClick={(e) => { e.stopPropagation(); setSelectedSticker(i); }} style={{ left: sticker.x + "%", top: sticker.y + "%", fontSize: (sticker.size || 28) + "px", transform: `rotate(${sticker.rotation || 0}deg)` }}>{sticker.emoji}{selectedSticker === i && <button className="sticker-delete" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); removeSticker(i); setSelectedSticker(null); }}>×</button>}<span className="sticker-resize" onPointerDown={(e) => startStickerDrag(e, i, true)} /></span>)}
               <div style={{ position: "relative", padding: 20, color: theme.text }}>
-                <h2 style={{ color: theme.button, marginTop: 0 }}>
+                <h2 style={{ color: (themeId === "base" ? (style.accent || "#14532d") : theme.button), marginTop: 0 }}>
                   {style.title || (couple ? "Votre planning" : `Planning de ${result.plans[0].name}`)}
                 </h2>
 
@@ -1343,7 +1379,7 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .editor-sidebar { display: flex; flex-direction: column; }.editor-brand { display:flex; gap:10px; align-items:center; margin-bottom: 28px; }.editor-brand > span { display:grid; place-items:center; width:34px; height:34px; border-radius:11px; background:linear-gradient(135deg,#c084fc,#7c3aed); box-shadow:0 0 20px #7c3aed; }.editor-brand strong,.editor-brand small { display:block; }.editor-brand small { color:#aaa3c9; font-size:10px; margin-top:3px; }.editor-tabs { display:flex; flex-direction:column; gap:6px; }.editor-tab { border:0; background:transparent; color:#aaa3c9; text-align:left; padding:12px 10px; border-radius:12px; font:inherit; cursor:pointer; display:flex; gap:10px; align-items:center; }.editor-tab.active { color:#fff; background:rgba(167,139,250,.18); box-shadow:inset 3px 0 #c084fc; }.editor-panel { min-width:0; background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.1); border-radius:18px; padding:22px; }.editor-panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:20px; }.editor-panel h2 { color:#fff; margin:5px 0 0; }.eyebrow { color:#c084fc; font-size:10px; font-weight:700; letter-spacing:.16em; }.editor-status { color:#86efac; font-size:11px; }.control-grid { display:grid; gap:16px; }.editor-panel .label { color:#dcd6f2; }.editor-panel .input,.editor-panel .color { background:rgba(8,6,20,.45); border-color:#493c6b; color:#fff; }.editor-panel .hint { color:#b9b1d0; }.color-grid { display:flex; gap:24px; }.theme-row { display:flex; gap:8px; flex-wrap:wrap; }.theme { border:1px solid #5b4a83; color:#fff; border-radius:10px; padding:10px 14px; cursor:pointer; background:#26203d; }.theme-aurora { background:linear-gradient(135deg,#16122e,#6d28d9); }.theme-sunset { background:linear-gradient(135deg,#7c2d12,#fb923c); }.theme-forest { background:linear-gradient(135deg,#14532d,#65a30d); }.sticker-palette { display:flex; flex-wrap:wrap; gap:8px; }.sticker-btn { border:1px solid #58477c; background:#211a3a; border-radius:12px; font-size:24px; width:46px; height:46px; cursor:pointer; transition:transform .15s; }.sticker-btn:hover { transform:translateY(-3px) rotate(-4deg); }.sticker-list { display:flex; gap:8px; flex-wrap:wrap; }.sticker-chip { border:1px solid #66538d; background:#2a2147; color:#fff; border-radius:99px; padding:6px 10px; cursor:pointer; }.sticker-chip small { color:#b8add4; }.planning-warnings { margin: 0 0 14px; padding: 8px 12px; border-left: 3px solid #dc2626; background: #fff1f2; color: #b91c1c; font-size: 12px; line-height: 1.45; }.planning-warnings p { margin: 0; }.planning-warnings p + p { margin-top: 4px; }
 .editor-warning { color:#ff7b87 !important; border-left:2px solid #ef4444; padding-left:10px; }.floating-sticker { position:absolute; z-index:12; pointer-events:auto; cursor:move; user-select:none; font-size:28px; filter:drop-shadow(0 4px 8px rgba(0,0,0,.18)); transform:rotate(-8deg); }.floating-sticker.selected { outline:2px dashed #c084fc; outline-offset:4px; }.sticker-resize { position:absolute; right:-7px; bottom:-7px; width:12px; height:12px; border-radius:3px; background:#c084fc; cursor:nwse-resize; }.sticker-delete { position:absolute; top:-12px; right:-12px; border:0; border-radius:50%; width:20px; height:20px; background:#dc2626; color:white; cursor:pointer; line-height:18px; }.event-reveal { animation: eventReveal .55s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes spin { to { transform:rotate(360deg); } } @keyframes orbitPulse { 50% { transform:scale(1.05); box-shadow:0 0 55px #a78bfa, inset 0 0 36px rgba(139,92,246,.7); } } @keyframes coreGlow { to { transform:scale(1.14) rotate(8deg); } } @keyframes fillCine { to { width:100%; } } @keyframes cineText { 0%,18% { opacity:0; transform:translateY(10px); } 24%,44% { opacity:1; transform:translateY(0); } 52%,100% { opacity:0; transform:translateY(-10px); } } @keyframes eventReveal { from { opacity:0; transform:scale(.84) translateY(8px); } to { opacity:1; transform:scale(1) translateY(0); } }
-*{scrollbar-color:var(--button) var(--page)}body{background:var(--page);color:var(--ink)}.app{background:var(--page);color:var(--ink)}.card,.tab,.choice,.input,.color,.btn.ghost,.list li{background:var(--panel);color:var(--ink);border-color:var(--border)}.theme-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;margin:6px 0 12px}.theme-option{display:flex;flex-direction:column;gap:5px;min-width:0;padding:7px 8px;border:1px solid var(--border);border-radius:10px;background:var(--panel);color:var(--ink);cursor:pointer;font:inherit;font-size:12px;text-align:left}.theme-option.on{outline:2px solid var(--button)}.swatches{display:flex;gap:3px}.swatches i{width:13px;height:13px;border-radius:50%;border:1px solid #0003}
+/* Les thèmes sont volontairement limités au planning (aperçu/impression inclus). */.theme-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;margin:6px 0 12px}.theme-option{display:flex;flex-direction:column;gap:5px;min-width:0;padding:7px 8px;border:1px solid var(--border);border-radius:10px;background:var(--panel);color:var(--ink);cursor:pointer;font:inherit;font-size:12px;text-align:left}.theme-option.on{outline:2px solid var(--button)}.swatches{display:flex;gap:3px}.swatches i{width:13px;height:13px;border-radius:50%;border:1px solid #0003}
 @media (max-width: 680px) { .editor-layout { display:block; padding:12px; }.editor-sidebar { display:block; }.editor-brand { margin:4px 4px 12px; }.editor-tabs { flex-direction:row; gap:4px; }.editor-tab { flex:1; justify-content:center; padding:10px 4px; font-size:12px; }.editor-tab span { display:none; }.editor-panel { margin-top:10px; padding:16px; }.editor-panel-head { margin-bottom:14px; }.color-grid { gap:14px; }.app { padding:26px 12px 54px; } }
 /* Mode éditeur : atelier + aperçu côte à côte, sans surface blanche. */
 html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff; }
