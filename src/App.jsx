@@ -18,7 +18,7 @@ const SLOTS = [
   { id: "soir", label: "Soir" },
 ];
 
-const STEPS = ["Profil", "Ta semaine", "Objectifs", "Préférences", "Personnalisation"];
+const STEPS = ["Profil", "Ta semaine", "Objectifs", "Personnalisation"];
 
 const COLORS = [
   { bg: "#f2f8f4", border: "#14532d", text: "#14532d" },
@@ -35,12 +35,6 @@ const CATEGORIES = [
 
 const STORAGE_KEY = "ruvy-planner-v2";
 const MAX_SHIFT_MIN = 30;
-const THEMES = {
-  Aurora: { bgColor: "#102a2b", cardColor: "#164e63", textColor: "#dff7f0", titleColor: "#99f6e4", buttonColor: "#0d9488", fieldColor: "#123d43", borderColor: "#2dd4bf" },
-  Sunset: { bgColor: "#3b1724", cardColor: "#6b2639", textColor: "#fff1e6", titleColor: "#fdba74", buttonColor: "#ea580c", fieldColor: "#522033", borderColor: "#fb7185" },
-  Forêt: { bgColor: "#10261b", cardColor: "#1f4d35", textColor: "#ecfdf5", titleColor: "#86efac", buttonColor: "#15803d", fieldColor: "#183b2a", borderColor: "#4ade80" },
-  Violet: { bgColor: "#18132c", cardColor: "#271b49", textColor: "#f5f3ff", titleColor: "#c4b5fd", buttonColor: "#7c3aed", fieldColor: "#21183c", borderColor: "#a78bfa" },
-};
 
 function classify(title) {
   const t = String(title).toLowerCase();
@@ -53,33 +47,7 @@ function classify(title) {
 function groupFixed(list) {
   const map = new Map();
   list.forEach((a, index) => {
-    const key = `${a.title.toLowerCase()}|${a.start}|${a.end}
-.theme-row { display: flex; flex-wrap: wrap; gap: 8px; }
-.theme { padding: 9px 14px; border: 1px solid var(--theme-border, #a78bfa); border-radius: 10px; cursor: pointer; background: var(--theme-card, #271b49); color: var(--theme-text, #f5f3ff); }
-.theme-surface { background: var(--theme-bg, #fff) !important; color: var(--theme-text, #151515); border-color: var(--theme-border, #ebebe8); }
-.theme-surface h2, .theme-surface .label { color: var(--theme-title, inherit); }
-.theme-surface .input, .theme-surface .color { background: var(--theme-field, #fff); color: var(--theme-text, #151515); border-color: var(--theme-border, #e0e0dc); }
-.theme-surface .btn { background: var(--theme-button, #14532d); border-color: var(--theme-border, #14532d); }
-.export-zone .day, .export-zone .common { background: var(--theme-card, rgba(255,255,255,.6)); border-color: var(--theme-border, #ececE8); }
-.export-zone .day h3, .export-zone .legend-item, .export-zone .hint { color: var(--theme-text, inherit); }
-.print-week { display: none; }
-@media print {
-  @page { size: landscape; margin: 8mm; }
-  body { background: var(--theme-bg, #fff) !important; }
-  .no-print, .screen-plan-title, .plan-summary, .export-zone .week, .export-zone .common { display:none !important; }
-  .plan-card { border:0; box-shadow:none; margin:0; padding:0; }
-  .export-zone { background: var(--theme-bg, #fff) !important; color: var(--theme-text, #151515) !important; width: 100%; min-height: 100vh; }
-  .print-week { display: grid; grid-template-columns: 38px repeat(7, 1fr); gap: 1px; background: var(--theme-border, #aaa); height: 188mm; }
-  .print-corner, .print-day-head, .print-hour, .print-cell { background: var(--theme-card, #fff); color: var(--theme-text, #151515); }
-  .print-corner, .print-day-head { padding: 5px 3px; text-align: center; font-weight: 700; font-size: 10px; }
-  .print-hour { padding: 4px 2px; text-align: right; font-size: 9px; }
-  .print-cell { position: relative; min-width: 0; overflow: visible; min-height: 22px; }
-  .print-rest { display: block; color: #888; text-align: center; font-size: 9px; margin-top: 8px; }
-  .print-event { position: absolute; z-index: 2; overflow: hidden; padding: 3px; border-radius: 3px; color: #fff; font-size: 9px; line-height: 1.1; border: 1px solid rgba(0,0,0,.18); }
-  .print-event.owner-0 { background: #2563eb; }
-  .print-event.owner-1 { background: #92400e; }
-}
-`;
+    const key = `${a.title.toLowerCase()}|${a.start}|${a.end}`;
     if (!map.has(key)) {
       map.set(key, { title: a.title, start: a.start, end: a.end, days: [], indexes: [] });
     }
@@ -107,28 +75,39 @@ const emptyPerson = (name) => ({
   level: "debutant",
   fixed: [],
   wants: [],
-  preferredDays: [],
-  preferredSlots: ["soir"],
   maxSessions: 3,
-  earliest: "06:00",
-  latest: "22:00",
+  firstSessionHour: 6,
+  lastSessionHour: 22,
 });
 
 const defaultStyle = {
   title: "Mon planning",
-  bgColor: "#ffffff",
+  bgColor: "#18132c",
   bgImage: "",
   bgOpacity: 0.25,
   dayImages: {},
   dayImageOpacity: 0.3,
   accent: "#a78bfa",
-  ...THEMES.Violet,
+  textColor: "#f5f3ff",
+  stickers: [],
 };
 
 function loadSaved() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const saved = JSON.parse(raw);
+    if (Array.isArray(saved?.people)) {
+      saved.people = saved.people.map((p) => {
+        const clean = Object.fromEntries(Object.entries(p || {}).filter(([key]) => !key.startsWith("pref")));
+        const hour = (value, fallback) => {
+          const n = Number(String(value ?? "").split(":")[0]);
+          return Number.isFinite(n) ? Math.max(5, Math.min(23, n)) : fallback;
+        };
+        return { ...emptyPerson(clean.name || "Toi"), ...clean, firstSessionHour: hour(clean.firstSessionHour, 6), lastSessionHour: hour(clean.lastSessionHour, 22) };
+      });
+    }
+    return saved;
   } catch {
     return null;
   }
@@ -149,14 +128,28 @@ export default function App() {
   const [couple, setCouple] = useState(saved?.couple ?? false);
   const [people, setPeople] = useState(saved?.people ?? [emptyPerson("Toi")]);
   const [active, setActive] = useState(0);
-  const [step, setStep] = useState(saved?.step ?? 0);
+  const [step, setStep] = useState(saved?.result ? 4 : Math.min(saved?.step ?? 0, 2));
   const [loading, setLoading] = useState(false);
+  const [cinematic, setCinematic] = useState(false);
+  const [editorTab, setEditorTab] = useState("colors");
   const [error, setError] = useState("");
   const [result, setResult] = useState(saved?.result ?? null);
-  const [style, setStyle] = useState({ ...defaultStyle, ...(saved?.style ?? {}) });
+  const [style, setStyle] = useState({ ...defaultStyle });
+  const [paintTool, setPaintTool] = useState("pen");
+  const [paintColor, setPaintColor] = useState("#c084fc");
+  const [paintSize, setPaintSize] = useState(5);
+  const [paintBackground, setPaintBackground] = useState("#18132c");
+  const [paintHistory, setPaintHistory] = useState([]);
+  const [paintFuture, setPaintFuture] = useState([]);
+  const [draggingEvent, setDraggingEvent] = useState(null);
+  const [selectedSticker, setSelectedSticker] = useState(null);
+  const stickerDragRef = useRef(null);
+  const [atelierDayOrder, setAtelierDayOrder] = useState(DAYS);
+  const atelierDayDragRef = useRef(null);
+  const paintCanvasRef = useRef(null);
+  const paintDrawingRef = useRef(false);
   const [exporting, setExporting] = useState(false);
-  const [printStart, setPrintStart] = useState(saved?.printStart ?? 6);
-  const [printEnd, setPrintEnd] = useState(saved?.printEnd ?? 22);
+  const [printPreview, setPrintPreview] = useState(false);
 
   const [draft, setDraft] = useState({ title: "", days: [], start: "18:00", end: "19:00" });
   const [wantDraft, setWantDraft] = useState("");
@@ -167,19 +160,24 @@ export default function App() {
   const exportRef = useRef(null);
 
   const person = people[active] || people[0];
-  const progress = Math.round((Math.min(step, 4) / 4) * 100);
+  const progress = Math.round((Math.min(step, 2) / 2) * 100);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("editor-active", step === 4);
+    return () => document.documentElement.classList.remove("editor-active");
+  }, [step]);
 
   // ----- Sauvegarde automatique -----
   useEffect(() => {
     try {
       localStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ couple, people, step, result, style, printStart, printEnd })
+        JSON.stringify({ couple, people, step, result })
       );
     } catch (e) {
       // quota dépassé (images trop lourdes) : on ignore sans casser l'app
     }
-  }, [couple, people, step, result, style, printStart, printEnd]);
+  }, [couple, people, step, result]);
 
   const update = (patch) =>
     setPeople((prev) => prev.map((p, i) => (i === active ? { ...p, ...patch } : p)));
@@ -235,7 +233,7 @@ export default function App() {
     });
   };
 
-  // ----- Préférences globales -----
+  // Réglages internes conservés pour la génération (sans étape affichée).
   const toggleIn = (key, value) => {
     const list = person[key];
     update({ [key]: list.includes(value) ? list.filter((v) => v !== value) : [...list, value] });
@@ -244,6 +242,7 @@ export default function App() {
   // ----- Génération -----
   const generate = async () => {
     setLoading(true);
+    setCinematic(true);
     setError("");
     try {
       const r = await fetch("/api/plan", {
@@ -254,9 +253,10 @@ export default function App() {
       if (!r.ok) throw new Error("Erreur serveur");
       const data = await r.json();
       setResult(data);
-      setStep(4); // arrive directement sur la personnalisation
+      setStep(4);
       setActive(0);
       setEditing(null);
+      window.setTimeout(() => setCinematic(false), 6000);
     } catch (e) {
       setError("Impossible de générer le planning. Réessaie dans un instant.");
     } finally {
@@ -265,7 +265,7 @@ export default function App() {
   };
 
   const next = () => {
-    if (step === 3) generate();
+    if (step === 2) generate();
     else setStep(step + 1);
   };
 
@@ -339,6 +339,27 @@ export default function App() {
   // ----- Personnalisation -----
   const setStyleKey = (patch) => setStyle((prev) => ({ ...prev, ...patch }));
 
+  const applyTheme = (theme) => { setPaintBackground(theme.bgColor); setStyleKey(theme); };
+  const selectEditorTab = (tab) => { setEditorTab(tab); setPaintTool("move"); setSelectedSticker(null); };
+  const selectPaintTool = (tool) => { setPaintTool(tool); setSelectedSticker(null); };
+  const addSticker = (sticker) => setStyleKey({ stickers: [...(style.stickers || []), { emoji: sticker, x: 18 + ((style.stickers || []).length * 17) % 70, y: 16 + ((style.stickers || []).length * 23) % 65, size: 28, rotation: -8 }] });
+  const updateSticker = (index, patch) => setStyleKey({ stickers: (style.stickers || []).map((s, i) => i === index ? { ...s, ...patch } : s) });
+  const startStickerDrag = (e, index, resize = false) => {
+    e.stopPropagation(); e.preventDefault();
+    const frame = e.currentTarget.closest(".export-zone"); if (!frame) return;
+    const rect = frame.getBoundingClientRect(); const sticker = style.stickers[index];
+    stickerDragRef.current = { index, resize, rect, startX: e.clientX, startY: e.clientY, startSize: sticker.size || 28, startXPos: sticker.x, startYPos: sticker.y };
+    setSelectedSticker(index); e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+  const moveSticker = (e) => {
+    const drag = stickerDragRef.current; if (!drag) return;
+    const dx = e.clientX - drag.startX, dy = e.clientY - drag.startY;
+    if (drag.resize) updateSticker(drag.index, { size: Math.max(16, Math.min(140, drag.startSize + (dx + dy) / 2)) });
+    else updateSticker(drag.index, { x: Math.max(0, Math.min(96, drag.startXPos + dx / drag.rect.width * 100)), y: Math.max(0, Math.min(96, drag.startYPos + dy / drag.rect.height * 100)) });
+  };
+  const endStickerDrag = () => { stickerDragRef.current = null; };
+  const removeSticker = (index) => setStyleKey({ stickers: (style.stickers || []).filter((_, i) => i !== index) });
+
   const onBgImage = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -404,27 +425,70 @@ export default function App() {
     }
   };
 
-  const applyTheme = (name) => setStyleKey({ ...THEMES[name], theme: name });
-
-  const printRows = Array.from({ length: Math.max(1, Number(printEnd) - Number(printStart) + 1) }, (_, i) => Number(printStart) + i);
-  const printEvents = (day) => result.plans.flatMap((p, pi) => p.events.filter((e) => e.day === day).map((e) => ({ ...e, owner: pi })));
-
-  const renderPrintWeek = () => (
-    <div className="print-week" aria-label="Planning imprimé">
-      <div className="print-corner">Heure</div>
-      {DAYS.map((d) => <div key={d} className="print-day-head">{d}</div>)}
-      {printRows.map((hour) => <>
-        <div key={`h-${hour}`} className="print-hour">{String(hour).padStart(2, "0")}h</div>
-        {DAYS.map((d) => {
-          const events = printEvents(d).filter((e) => toMin(e.start) >= hour * 60 && toMin(e.start) < (hour + 1) * 60);
-          return <div key={`${d}-${hour}`} className="print-cell">
-            {hour === printRows[0] && events.length === 0 && printEvents(d).length === 0 && <span className="print-rest">Repos</span>}
-            {events.map((e, i) => <div key={i} className={`print-event owner-${e.owner}`} style={{ top: `${(toMin(e.start) % 60) / 60 * 100}%`, height: `${Math.max(18, (toMin(e.end) - toMin(e.start)) / 60 * 100)}%`, left: `${i * 50}%`, width: `${100 / Math.max(1, events.length)}%` }}>{e.title}</div>)}
-          </div>;
-        })}
-      </>)}
-    </div>
-  );
+  // ----- Atelier Paint : dessin libre, annuler/rétablir et remplissage visuel -----
+  const snapshotCanvas = () => paintCanvasRef.current?.toDataURL() || "";
+  const restoreCanvas = (data) => {
+    const canvas = paintCanvasRef.current; if (!canvas || !data) return;
+    const image = new Image(); image.onload = () => canvas.getContext("2d").drawImage(image, 0, 0); image.src = data;
+  };
+  const prepareCanvas = (canvas) => {
+    if (!canvas || canvas.dataset.ready) return;
+    const box = canvas.getBoundingClientRect(); const ratio = window.devicePixelRatio || 1;
+    canvas.width = box.width * ratio; canvas.height = box.height * ratio;
+    canvas.getContext("2d").scale(ratio, ratio); canvas.dataset.ready = "true";
+  };
+  const paintPoint = (event) => {
+    const canvas = paintCanvasRef.current; if (!canvas) return;
+    prepareCanvas(canvas); const rect = canvas.getBoundingClientRect();
+    const ctx = canvas.getContext("2d"); const x = event.clientX - rect.left, y = event.clientY - rect.top;
+    if (paintTool === "bucket") return;
+    ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.lineWidth = paintSize;
+    ctx.strokeStyle = paintTool === "eraser" ? "rgba(0,0,0,1)" : paintColor;
+    ctx.globalCompositeOperation = paintTool === "eraser" ? "destination-out" : paintTool === "marker" ? "multiply" : "source-over";
+    if (!paintDrawingRef.current) { ctx.beginPath(); ctx.moveTo(x, y); paintDrawingRef.current = true; }
+    ctx.lineTo(x, y); ctx.stroke();
+  };
+  const beginPaint = (e) => { if (paintTool === "bucket" || paintTool === "picker") return; setPaintHistory(h => [...h.slice(-14), snapshotCanvas()]); setPaintFuture([]); paintPoint(e); };
+  const pickElementColor = (e) => {
+    const canvas = paintCanvasRef.current; if (canvas) canvas.style.pointerEvents = "none";
+    const hit = document.elementsFromPoint(e.clientX, e.clientY).find((node) => node !== canvas && node.closest?.(".export-zone"));
+    if (canvas) canvas.style.pointerEvents = "auto";
+    if (hit) {
+      const color = getComputedStyle(hit).backgroundColor !== "rgba(0, 0, 0, 0)" ? getComputedStyle(hit).backgroundColor : getComputedStyle(hit).color;
+      const match = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+      if (match) setPaintColor(`#${match.slice(1).map(v => Number(v).toString(16).padStart(2, "0")).join("")}`);
+    }
+    setPaintTool("move");
+  };
+  const handlePaintPointer = async (e) => {
+    e.preventDefault();
+    if (paintTool === "picker") {
+      if (window.EyeDropper) { try { const picked = await new window.EyeDropper().open(); setPaintColor(picked.sRGBHex); setPaintTool("move"); return; } catch (_) {} }
+      pickElementColor(e); return;
+    }
+    if (paintTool === "bucket") {
+      setPaintHistory(h => [...h.slice(-14), snapshotCanvas()]); setPaintFuture([]);
+      const hit = document.elementsFromPoint(e.clientX, e.clientY).find((node) => !node.classList?.contains("paint-canvas") && node.matches?.(".day, .export-zone h2, .export-zone"));
+      if (hit?.matches(".day")) hit.style.backgroundColor = paintColor;
+      else if (hit?.matches("h2")) hit.style.color = paintColor;
+      else setPaintBackground(paintColor);
+      return;
+    }
+    beginPaint(e);
+  };
+  const endPaint = () => { paintDrawingRef.current = false; };
+  const undoPaint = () => { const last = paintHistory.at(-1); if (!last) return; setPaintFuture(f => [...f, snapshotCanvas()]); setPaintHistory(h => h.slice(0,-1)); const c=paintCanvasRef.current; if(c){c.getContext("2d").clearRect(0,0,c.width,c.height); restoreCanvas(last);} };
+  const redoPaint = () => { const next = paintFuture.at(-1); if (!next) return; setPaintHistory(h => [...h, snapshotCanvas()]); setPaintFuture(f => f.slice(0,-1)); const c=paintCanvasRef.current; if(c){c.getContext("2d").clearRect(0,0,c.width,c.height); restoreCanvas(next);} };
+  const moveEvent = (e, day) => {
+    if (paintTool !== "move") return;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    const planIndex = Number(e.currentTarget.dataset.plan), eventIndex = Number(e.currentTarget.dataset.event);
+    const rect = e.currentTarget.parentElement.getBoundingClientRect();
+    const dayIndex = DAYS.indexOf(day); const nextDay = DAYS[Math.max(0, Math.min(6, Math.round((e.clientX - rect.left) / (rect.width / 7) - .5)))];
+    if (nextDay && nextDay !== day) updateEvent(planIndex, eventIndex, { day: nextDay });
+    setDraggingEvent({ planIndex, eventIndex });
+  };
+  const finishMove = () => setDraggingEvent(null);
 
   const groups = groupFixed(person.fixed);
 
@@ -464,13 +528,42 @@ export default function App() {
     return merged;
   };
 
+  const renderPrintGrid = () => {
+    if (!result) return null;
+    const start = Math.max(5, Math.min(23, Number(person?.firstSessionHour) || 6));
+    const end = Math.max(start, Math.min(23, Number(person?.lastSessionHour) || 22));
+    const hours = Array.from({ length: end - start + 1 }, (_, i) => start + i);
+    const eventsAt = (day, hour) => result.plans.flatMap((p, owner) =>
+      (p.events || []).filter((e) => e.day === day && Number(String(e.start || "").split(":")[0]) === hour)
+        .map((e) => ({ ...e, owner, ownerName: p.name }))
+    );
+    return <div className="print-grid-wrap" aria-label="Grille imprimable du planning">
+      <h2 className="print-title">{style.title || "Mon planning"}</h2>
+      <table className="print-grid"><thead><tr><th>Heure</th>{DAYS.map((d) => <th key={d}>{d}</th>)}</tr></thead>
+        <tbody>{hours.map((hour) => <tr key={hour}><th>{hour}h</th>{DAYS.map((day) => {
+          const events = eventsAt(day, hour);
+          return <td key={day}>{events.length ? events.map((e, i) => <div key={i} className="print-event"><strong>{e.title}</strong><span>{e.start} – {e.end}</span>{couple && <small>{e.ownerName}</small>}</div>) : <span className="print-rest">Repos</span>}</td>;
+        })}</tr>)}</tbody></table>
+    </div>;
+  };
+
   const renderWeek = (interactive) => (
+    <div className="week-frame" aria-label="Cadre du planning à sept jours">
     <div className="week">
-      {DAYS.map((d) => {
+      {atelierDayOrder.map((d) => {
         const merged = buildDay(d);
         const dayImg = style.dayImages[d];
         return (
-          <div key={d} className="day" style={{ position: "relative", overflow: "hidden" }}>
+          <div key={d} className="day" draggable={paintTool === "move"}
+            onDragStart={(e) => { atelierDayDragRef.current = d; e.dataTransfer.effectAllowed = "move"; }}
+            onDragOver={(e) => { if (paintTool === "move") e.preventDefault(); }}
+            onDrop={(e) => {
+              e.preventDefault();
+              const from = atelierDayDragRef.current;
+              if (paintTool === "move" && from && from !== d) setAtelierDayOrder(order => { const next=[...order]; const a=next.indexOf(from), b=next.indexOf(d); [next[a],next[b]]=[next[b],next[a]]; return next; });
+              atelierDayDragRef.current = null;
+            }}
+            style={{ position: "relative", overflow: "hidden", backgroundColor: style.bgColor }}>
             {dayImg && (
               <div
                 style={{
@@ -485,27 +578,31 @@ export default function App() {
               />
             )}
             <div style={{ position: "relative" }}>
-              <h3>{d}</h3>
+              <h3 style={{ color: style.textColor || "#151515" }}>{d}</h3>
               {merged.length === 0 && <div className="rest">Libre</div>}
               {merged.map((e, i) => {
                 const c = e.together
-                  ? { bg: "#f5f0ff", border: "#7c3aed" }
-                  : COLORS[e.owner] || COLORS[0];
+                  ? { bg: style.blockColor || "#f5f0ff", border: "#7c3aed" }
+                  : style.blockColor ? { bg: style.blockColor, border: style.accent } : (COLORS[e.owner] || COLORS[0]);
                 const warns = interactive && !e.together ? warningsFor(e.owner, e.evIndex) : [];
                 const canEdit = interactive && !e.fixed && !e.together;
                 return (
                   <div
                     key={i}
-                    className={canEdit ? "event editable" : "event"}
+                    className={(canEdit ? "event editable" : "event") + " event-reveal"}
+                    data-plan={e.owner} data-event={e.evIndex}
+                    onPointerDown={(ev) => moveEvent(ev, d)} onPointerUp={finishMove}
                     onClick={canEdit ? () => startEdit(e.owner, e.evIndex) : undefined}
+                    onDoubleClick={() => paintTool === "bucket" && setStyleKey({ blockColor: paintColor })}
                     style={{
                       background: c.bg,
                       borderLeft: `3px solid ${warns.length ? "#dc2626" : c.border}`,
                       opacity: e.fixed ? 0.85 : 1,
+                      animationDelay: `${i * 90}ms`,
                     }}
                   >
-                    <strong>{e.title}</strong>
-                    <span>{e.start} – {e.end}</span>
+                    <strong style={{ color: style.textColor || "#151515" }}>{e.title}</strong>
+                    <span style={{ color: style.textColor || "#151515" }}>{e.start} – {e.end}</span>
                     {couple && (
                       <span className="owner">{e.together ? "Ensemble" : e.ownerName}</span>
                     )}
@@ -517,6 +614,7 @@ export default function App() {
           </div>
         );
       })}
+    </div>
     </div>
   );
 
@@ -579,12 +677,25 @@ export default function App() {
     <div className="app">
       <style>{css}</style>
 
-      <header className="top no-print">
+      {cinematic && (
+        <div className="cinematic no-print" role="status" aria-live="polite">
+          <div className="star-field">✦ · ✧ · ✦ · ⋆ · ✧ · ✦ · ⋆ · ✧ · ✦</div><div className="cinematic-orbit"><div className="cinematic-core">RUVY</div></div>
+          <div className="cinematic-track"><span /></div>
+          <div className="cinematic-copy">
+            <p className="cine-line line-1">🔍 Analyse de ta semaine…</p>
+            <p className="cine-line line-2">📅 Placement des séances…</p>
+            <p className="cine-line line-3">✨ Ajout des touches finales…</p>
+            <p className="cine-line line-4">✅ C'est prêt !</p>
+          </div>
+        </div>
+      )}
+
+      <header className={step === 4 ? "top no-print editor-hidden" : "top no-print"}>
         <h1>Mon planning</h1>
         <p>Construis une semaine d'entraînement adaptée à ton niveau.</p>
       </header>
 
-      <div className="progress no-print">
+      <div className={step === 4 ? "progress no-print editor-hidden" : "progress no-print"}>
         <div className="progress-labels">
           {STEPS.map((s, i) => (
             <span key={s} className={i <= step ? "on" : ""}>{s}</span>
@@ -717,17 +828,20 @@ export default function App() {
       {step === 2 && (
         <section className="card">
           <h2>Ce que tu veux ajouter</h2>
-          <p className="hint">Chaque activité peut avoir ses propres réglages : nombre de séances, moments et jours préférés.</p>
+          <p className="hint">Chaque activité peut avoir ses propres réglages : nombre de séances et moments.</p>
 
-          <h2>Plage horaire du planning</h2>
-          <p className="hint">Ces horaires servent à définir la grille d'impression. Ils ne bloquent jamais tes choix.</p>
-          <div className="row">
+          <div className="row time-range-fields">
             <label className="field">Première séance à
-              <input type="number" min="0" max="23" className="input" value={printStart} onChange={(e) => setPrintStart(Math.max(0, Math.min(23, Number(e.target.value) || 0)))} />
+              <select className="input" value={person.firstSessionHour} onChange={(e) => update({ firstSessionHour: Number(e.target.value) })}>
+                {Array.from({ length: 19 }, (_, i) => i + 5).map((h) => <option key={h} value={h}>{h}h</option>)}
+              </select>
             </label>
             <label className="field">Dernière séance finit à
-              <input type="number" min="1" max="24" className="input" value={printEnd} onChange={(e) => setPrintEnd(Math.max(1, Math.min(24, Number(e.target.value) || 1)))} />
+              <select className="input" value={person.lastSessionHour} onChange={(e) => update({ lastSessionHour: Number(e.target.value) })}>
+                {Array.from({ length: 19 }, (_, i) => i + 5).map((h) => <option key={h} value={h}>{h}h</option>)}
+              </select>
             </label>
+            {Number(person.lastSessionHour) <= Number(person.firstSessionHour) && <span className="range-warning">La dernière heure doit être après la première.</span>}
           </div>
 
           <div className="row">
@@ -799,151 +913,42 @@ export default function App() {
         </section>
       )}
 
-      {/* ---------- ÉTAPE 4 : PRÉFÉRENCES ---------- */}
-      {step === 3 && (
-        <section className="card">
-          <h2>Quels jours peut-on te proposer des séances ?</h2>
-          <p className="hint">Ces réglages s'appliquent à toutes tes activités (sauf si tu en as défini d'autres).</p>
-          <div className="chips">
-            {DAYS.map((d) => (
-              <button
-                key={d}
-                className={person.preferredDays.includes(d) ? "chip on" : "chip"}
-                onClick={() => toggleIn("preferredDays", d)}
-              >
-                {SHORT[d]}
-              </button>
-            ))}
-          </div>
-
-          <h2>À quel moment de la journée ?</h2>
-          <p className="hint">Tu peux en choisir plusieurs.</p>
-          <div className="chips">
-            {SLOTS.map((s) => (
-              <button
-                key={s.id}
-                className={person.preferredSlots.includes(s.id) ? "chip on" : "chip"}
-                onClick={() => toggleIn("preferredSlots", s.id)}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-
-          <h2>Entre quelles heures peut-on te proposer des séances ?</h2>
-          <p className="hint">Aucune séance ne sera placée en dehors de cette plage.</p>
-          <div className="row">
-            <label className="field">De
-              <input type="time" className="input" value={person.earliest} onChange={(e) => update({ earliest: e.target.value })} />
-            </label>
-            <label className="field">À
-              <input type="time" className="input" value={person.latest} onChange={(e) => update({ latest: e.target.value })} />
-            </label>
-          </div>
-          {error && <p className="error">{error}</p>}
-        </section>
-      )}
-
       {/* ---------- ÉTAPE 5 : PERSONNALISATION + RÉSULTAT ---------- */}
       {step === 4 && result && (
         <>
-          {/* Panneau de personnalisation (une seule page pour les deux) */}
-          <section className="card no-print theme-surface" style={{ "--theme-bg": style.bgColor, "--theme-card": style.cardColor, "--theme-text": style.textColor, "--theme-title": style.titleColor, "--theme-button": style.buttonColor, "--theme-field": style.fieldColor, "--theme-border": style.borderColor }}>
-            <h2>Personnalisation</h2>
-            <p className="hint">
-              {couple
-                ? "Un seul réglage pour le planning commun du couple."
-                : "Règle l'apparence de ton planning."}
-            </p>
-
-            <label className="label">Thème</label>
-            <div className="theme-row">
-              {Object.keys(THEMES).map((name) => <button key={name} className="theme" onClick={() => applyTheme(name)}>{name}</button>)}
-            </div>
-
-            <label className="label">Titre du planning</label>
-            <input
-              className="input full"
-              value={style.title}
-              onChange={(e) => setStyleKey({ title: e.target.value })}
-            />
-
-            <div className="row spaced">
-              <label className="field">Couleur de fond
-                <input
-                  type="color"
-                  className="color"
-                  value={style.bgColor}
-                  onChange={(e) => setStyleKey({ bgColor: e.target.value })}
-                />
-              </label>
-              <label className="field">Couleur d'accent
-                <input
-                  type="color"
-                  className="color"
-                  value={style.accent}
-                  onChange={(e) => setStyleKey({ accent: e.target.value })}
-                />
-              </label>
-            </div>
-
-            <label className="label">Image de fond</label>
-            <div className="row">
-              <input type="file" accept="image/*" onChange={onBgImage} />
-              {style.bgImage && (
-                <button className="link" onClick={() => setStyleKey({ bgImage: "" })}>
-                  Retirer l'image
-                </button>
-              )}
-            </div>
-            {style.bgImage && (
-              <label className="field slider">
-                Transparence de l'image : {Math.round(style.bgOpacity * 100)} %
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={style.bgOpacity}
-                  onChange={(e) => setStyleKey({ bgOpacity: Number(e.target.value) })}
-                />
-              </label>
-            )}
-
-            <label className="label">Images par jour <em>(optionnel)</em></label>
-            <div className="day-images">
-              {DAYS.map((d) => (
-                <div key={d} className="day-image-row">
-                  <span>{SHORT[d]}</span>
-                  <input type="file" accept="image/*" onChange={(e) => onDayImage(d, e)} />
-                  {style.dayImages[d] && (
-                    <button className="link" onClick={() => removeDayImage(d)}>Retirer</button>
-                  )}
-                </div>
-              ))}
-            </div>
-            {Object.keys(style.dayImages).length > 0 && (
-              <label className="field slider">
-                Transparence des images de jour : {Math.round(style.dayImageOpacity * 100)} %
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={style.dayImageOpacity}
-                  onChange={(e) => setStyleKey({ dayImageOpacity: Number(e.target.value) })}
-                />
-              </label>
-            )}
-          </section>
+          <div className="editor-workspace">
+          <div className="editor-layout no-print">
+            <aside className="editor-sidebar">
+              <div className="editor-brand"><span>✦</span><div><strong>Atelier</strong><small>Ton planning, ta signature</small></div></div>
+              <div className="editor-tabs">
+                <button className={editorTab === "colors" ? "editor-tab active" : "editor-tab"} onClick={() => selectEditorTab("colors")}>🎨 <span>Personnalisation</span></button>
+                <button className={editorTab === "paint" ? "editor-tab active" : "editor-tab"} onClick={() => selectEditorTab("paint")}>🖌️ <span>Fond</span></button>
+                <button className={editorTab === "stickers" ? "editor-tab active" : "editor-tab"} onClick={() => selectEditorTab("stickers")}>✨ <span>Stickers</span></button>
+                <button className={editorTab === "edit" ? "editor-tab active" : "editor-tab"} onClick={() => selectEditorTab("edit")}>✏️ <span>Modification</span></button>
+              </div>
+            </aside>
+            <section className="editor-panel">
+              <div className="editor-panel-head"><div><span className="eyebrow">PERSONNALISATION</span><h2>{editorTab === "colors" ? "Donne-lui ta couleur" : editorTab === "stickers" ? "Ajoute ton énergie" : "Ajuste tes séances"}</h2></div><span className="editor-status">● Sauvegardé</span></div>
+              {editorTab === "colors" && <div className="control-grid">
+                <label className="label">Titre du planning<input className="input full" value={style.title} onChange={(e) => setStyleKey({ title: e.target.value })} /></label>
+                <div className="color-grid"><label className="field">Fond<input type="color" className="color" value={style.bgColor} onChange={(e) => setStyleKey({ bgColor: e.target.value })} /></label><label className="field">Accent<input type="color" className="color" value={style.accent} onChange={(e) => setStyleKey({ accent: e.target.value })} /></label><label className="field">Texte<input type="color" className="color" value={style.textColor || "#151515"} onChange={(e) => setStyleKey({ textColor: e.target.value })} /></label></div>
+                <div><label className="label">Thèmes prêts à l'emploi</label><div className="theme-row"><button className="theme theme-aurora" onClick={() => applyTheme({ bgColor: "#101026", accent: "#a78bfa", textColor: "#f5f3ff" })}>Aurora</button><button className="theme theme-sunset" onClick={() => applyTheme({ bgColor: "#fff7ed", accent: "#ea580c", textColor: "#431407" })}>Sunset</button><button className="theme theme-forest" onClick={() => applyTheme({ bgColor: "#f2f8f4", accent: "#14532d", textColor: "#163324" })}>Forêt</button></div></div>
+                <label className="label">Arrière-plan <input type="file" accept="image/*" onChange={onBgImage} /></label>{style.bgImage && <><button className="link" onClick={() => setStyleKey({ bgImage: "" })}>Retirer l'image</button><label className="field slider">Transparence : {Math.round(style.bgOpacity * 100)} %<input type="range" min="0" max="1" step="0.05" value={style.bgOpacity} onChange={(e) => setStyleKey({ bgOpacity: Number(e.target.value) })} /></label></>}
+              </div>}
+              {editorTab === "paint" && <div className="control-grid"><p className="hint">Dessine directement sur le planning. Le pot colore la zone ciblée, la pipette reprend une couleur, et les personnalisations restent en mémoire uniquement pendant cette session.</p><div className="paint-tools"><button className={paintTool === "move" ? "paint-tool active" : "paint-tool"} onClick={() => selectPaintTool("move")}>↖<small>Clic normal</small></button>{[["pen","✎","Stylo"],["bucket","▧","Pot"],["eraser","⌫","Gomme"],["picker","⌾","Pipette"],["marker","▰","Surligneur"]].map(([id,icon,label]) => <button key={id} className={paintTool===id ? "paint-tool active" : "paint-tool"} onClick={() => selectPaintTool(id)}>{icon}<small>{label}</small></button>)}</div><label className="label">Épaisseur : {paintSize}px<input type="range" min="2" max="32" value={paintSize} onChange={(e) => setPaintSize(Number(e.target.value))} /></label><label className="label">Couleur<input type="color" className="color" value={paintColor} onChange={(e) => setPaintColor(e.target.value)} /></label><div className="paint-actions"><button className="theme" onClick={undoPaint}>↶ Annuler</button><button className="theme" onClick={redoPaint}>↷ Rétablir</button></div><label className="label">Fond du planning<select className="input" value={paintBackground} onChange={(e) => { setPaintBackground(e.target.value); setStyleKey({ bgColor: e.target.value }); }}><option value="#18132c">Violet profond</option><option value="#25143d">Prune</option><option value="#172554">Bleu nuit</option><option value="#1f2937">Ardoise</option></select></label></div>}
+              {editorTab === "stickers" && <div className="control-grid"><p className="hint">Choisis un signe distinctif, puis ajoute des images par jour comme arrière-plan ou logo.</p><div className="sticker-palette">{["🔥","⚡","🏋️","🥊","🏃","🧘","🚴","🏆","💪","🌙"].map((x) => <button key={x} className="sticker-btn" onClick={() => addSticker(x)}>{x}</button>)}</div><label className="label">Images / logos par jour</label><div className="day-images">{DAYS.map((d) => <div key={d} className="day-image-row"><span>{SHORT[d]}</span><input type="file" accept="image/*" onChange={(e) => onDayImage(d, e)} />{style.dayImages[d] && <img src={style.dayImages[d]} alt={`Miniature ${SHORT[d]}`} />}{style.dayImages[d] && <button className="link" onClick={() => removeDayImage(d)}>Retirer</button>}</div>)}</div>{Object.keys(style.dayImages).length > 0 && <label className="field slider">Transparence : {Math.round(style.dayImageOpacity * 100)} %<input type="range" min="0" max="1" step="0.05" value={style.dayImageOpacity} onChange={(e) => setStyleKey({ dayImageOpacity: Number(e.target.value) })} /></label>}<div className="sticker-list">{(style.stickers || []).map((s, i) => <button key={i} className="sticker-chip" onClick={() => removeSticker(i)}>{s.emoji} <small>retirer</small></button>)}</div></div>}
+              {editorTab === "edit" && <div className="control-grid"><p className="hint">Clique sur une séance ajoutée dans le planning pour modifier son jour, ses horaires ou la supprimer.</p>{renderEditor()}<p className="warn-text editor-warning">⚠ Les séances ajoutées peuvent être décalées de 30 minutes maximum. Les avertissements restent sans blocage.</p></div>}
+            </section>
+          </div>
 
           {/* Planning (zone exportée) */}
           <section className="card plan-card">
             <div
               ref={exportRef}
               className="export-zone"
-              style={{ background: style.bgColor, color: style.textColor, position: "relative", overflow: "hidden", "--theme-bg": style.bgColor, "--theme-card": style.cardColor, "--theme-text": style.textColor, "--theme-title": style.titleColor, "--theme-button": style.buttonColor, "--theme-field": style.fieldColor, "--theme-border": style.borderColor }}
+              style={{ "--atelier-event-bg": style.blockColor || "transparent", background: style.bgColor, color: style.textColor || "#151515", borderColor: style.accent, position: "relative", overflow: "hidden" }}
             >
+              <canvas ref={paintCanvasRef} className="paint-canvas" style={{ pointerEvents: ["pen", "marker", "eraser", "bucket", "picker"].includes(paintTool) ? "auto" : "none" }} onPointerDown={(e) => { e.preventDefault(); handlePaintPointer(e); }} onMouseDown={(e) => e.preventDefault()} onPointerMove={(e) => { e.preventDefault(); paintDrawingRef.current && paintPoint(e); }} onPointerUp={endPaint} onPointerCancel={endPaint} aria-label="Dessin par-dessus le planning" />
               {style.bgImage && (
                 <div
                   style={{
@@ -958,8 +963,9 @@ export default function App() {
                 />
               )}
 
-              <div style={{ position: "relative", padding: 20 }}>
-                <h2 className="screen-plan-title" style={{ color: style.titleColor || style.accent, marginTop: 0 }}>
+              {(style.stickers || []).map((sticker, i) => <span key={i} className={`floating-sticker ${selectedSticker === i ? "selected" : ""}`} onPointerDown={(e) => startStickerDrag(e, i)} onPointerMove={moveSticker} onPointerUp={endStickerDrag} onPointerCancel={endStickerDrag} onClick={(e) => { e.stopPropagation(); setSelectedSticker(i); }} style={{ left: sticker.x + "%", top: sticker.y + "%", fontSize: (sticker.size || 28) + "px", transform: `rotate(${sticker.rotation || 0}deg)` }}>{sticker.emoji}{selectedSticker === i && <button className="sticker-delete" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); removeSticker(i); setSelectedSticker(null); }}>×</button>}<span className="sticker-resize" onPointerDown={(e) => startStickerDrag(e, i, true)} /></span>)}
+              <div style={{ position: "relative", padding: 20, color: style.textColor || "#151515" }}>
+                <h2 style={{ color: style.accent, marginTop: 0 }}>
                   {style.title || (couple ? "Votre planning" : `Planning de ${result.plans[0].name}`)}
                 </h2>
 
@@ -984,15 +990,8 @@ export default function App() {
                   </div>
                 )}
 
-                {result.plans.map((p, i) => (
-                  <p key={i} className="hint plan-summary">
-                    {p.name} : {p.sessionsAdded} séance(s) ajoutée(s) sur {p.sessionsTarget} prévue(s).
-                    {p.restDay ? ` Repos : ${p.restDay}.` : ""}
-                  </p>
-                ))}
-
                 {renderWeek(!exporting)}
-                {renderPrintWeek()}
+                {renderPrintGrid()}
 
                 {couple && result.commonSlots?.length > 0 && (
                   <div className="common">
@@ -1017,8 +1016,9 @@ export default function App() {
 
             <div className="row no-print end">
               <button className="btn ghost" onClick={restart}>Recommencer</button>
-              <button className="btn ghost" onClick={() => setStep(3)}>Modifier mes choix</button>
-              <button className="btn ghost" onClick={() => window.print()}>Imprimer</button>
+              <button className="btn ghost" onClick={() => setStep(0)}>← Modifier mes infos</button>
+              <button className="btn ghost" onClick={() => setPrintPreview(true)}>Aperçu</button>
+              <button className="btn ghost" onClick={() => window.print()}>🖨️ Imprimer / Télécharger</button>
               <button className="btn ghost" disabled={exporting} onClick={exportPNG}>
                 {exporting ? "Export..." : "Export PNG"}
               </button>
@@ -1027,6 +1027,7 @@ export default function App() {
               </button>
             </div>
           </section>
+          </div>
         </>
       )}
 
@@ -1036,9 +1037,15 @@ export default function App() {
             Retour
           </button>
           <button className="btn" disabled={loading} onClick={next}>
-            {step === 3 ? (loading ? "Génération..." : "Générer mon planning") : "Suivant"}
+            {step === 2 ? (loading ? "Génération..." : "Générer le planning") : "Suivant"}
           </button>
         </footer>
+      )}
+
+      {printPreview && (
+        <div className="print-preview-overlay no-print" role="dialog" aria-modal="true" aria-label="Aperçu du planning">
+          <div className="print-preview-modal"><button className="btn ghost print-preview-close" onClick={() => setPrintPreview(false)}>Fermer</button>{renderPrintGrid()}</div>
+        </div>
       )}
     </div>
   );
@@ -1106,7 +1113,10 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .week { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-top: 8px; }
 .day { border: 1px solid #ececE8; border-radius: 12px; padding: 12px; min-height: 120px; background: rgba(255,255,255,.6); }
 .day h3 { font-size: 13px; margin: 0 0 8px; color: #151515; font-weight: 600; }
-.rest { font-size: 12px; color: #b0b0b0; }
+.rest { font-size: 12px; color: rgba(255,255,255,.82); background: rgba(167,139,250,.16); border: 1px solid rgba(167,139,250,.32); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-radius: 8px; padding: 8px; }
+.day-images { display:flex; flex-direction:column; gap:8px; margin-top:4px; }.day-image-row { display:grid; grid-template-columns:72px minmax(0,1fr) auto; align-items:center; gap:10px; }.day-image-row > span { font-weight:600; color:#dcd6f2; }.day-image-row input[type=file] { min-width:0; width:100%; }.day-image-row::after { content:""; }.day-image-row img { width:34px; height:34px; object-fit:cover; border-radius:7px; border:1px solid #66538d; }
+.time-range-fields { align-items: flex-end; margin: 12px 0 18px; }.range-warning { color: #dc2626; font-size: 12px; padding-bottom: 11px; }
+.print-grid-wrap { display:none; }.print-title { color: var(--print-accent, #7c3aed); margin: 0 0 10px; }.print-grid { width:100%; border-collapse:collapse; table-layout:fixed; font-size:10px; }.print-grid th,.print-grid td { border:1px solid color-mix(in srgb, var(--print-accent, #7c3aed) 35%, transparent); padding:4px; vertical-align:top; }.print-grid thead th { background: color-mix(in srgb, var(--print-accent, #7c3aed) 18%, transparent); }.print-grid tbody th { width:42px; text-align:center; }.print-event { background: color-mix(in srgb, var(--print-accent, #7c3aed) 16%, transparent); border-left:2px solid var(--print-accent, #7c3aed); padding:3px; margin:1px 0; display:flex; flex-direction:column; }.print-event span,.print-event small { font-size:9px; }.print-rest { color:#777; font-style:italic; }.print-preview-overlay { position:fixed; inset:0; z-index:100; display:grid; place-items:center; padding:24px; background:rgba(9,8,18,.72); }.print-preview-modal { position:relative; width:min(1100px,96vw); max-height:92vh; overflow:auto; padding:28px; border-radius:18px; background:#fff; color:#151515; box-shadow:0 25px 80px rgba(0,0,0,.4); }.print-preview-modal .print-grid-wrap { display:block; }.print-preview-close { position:absolute; top:12px; right:12px; z-index:1; }
 .event { padding: 8px; border-radius: 8px; margin-bottom: 6px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
 .event.editable { cursor: pointer; }
 .event.editable:hover { box-shadow: 0 0 0 2px rgba(20,83,45,.25); }
@@ -1132,7 +1142,7 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .cine-line { position: absolute; width: 100%; margin: 0; opacity: 0; font-size: clamp(16px, 2.5vw, 22px); font-weight: 600; letter-spacing: .01em; white-space: nowrap; }
 .line-1 { animation: cineText 6s 0s both; color: #c4b5fd; }.line-2 { animation: cineText 6s 1.5s both; color: #93c5fd; }.line-3 { animation: cineText 6s 3s both; color: #f0abfc; }.line-4 { animation: cineText 6s 4.5s both; color: #86efac; }
 .editor-layout { display: grid; grid-template-columns: 190px 1fr; gap: 20px; margin-bottom: 22px; padding: 18px; border-radius: 24px; background: linear-gradient(135deg,#141126,#1d1534); color: #f5f3ff; box-shadow: 0 24px 70px rgba(53,27,105,.22); }
-.editor-sidebar { display: flex; flex-direction: column; }.editor-brand { display:flex; gap:10px; align-items:center; margin-bottom: 28px; }.editor-brand > span { display:grid; place-items:center; width:34px; height:34px; border-radius:11px; background:linear-gradient(135deg,#c084fc,#7c3aed); box-shadow:0 0 20px #7c3aed; }.editor-brand strong,.editor-brand small { display:block; }.editor-brand small { color:#aaa3c9; font-size:10px; margin-top:3px; }.editor-tabs { display:flex; flex-direction:column; gap:6px; }.editor-tab { border:0; background:transparent; color:#aaa3c9; text-align:left; padding:12px 10px; border-radius:12px; font:inherit; cursor:pointer; display:flex; gap:10px; align-items:center; }.editor-tab.active { color:#fff; background:rgba(167,139,250,.18); box-shadow:inset 3px 0 #c084fc; }.editor-panel { min-width:0; background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.1); border-radius:18px; padding:22px; }.editor-panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:20px; }.editor-panel h2 { color:#fff; margin:5px 0 0; }.eyebrow { color:#c084fc; font-size:10px; font-weight:700; letter-spacing:.16em; }.editor-status { color:#86efac; font-size:11px; }.control-grid { display:grid; gap:16px; }.editor-panel .label { color:#dcd6f2; }.editor-panel .input,.editor-panel .color { background:rgba(8,6,20,.45); border-color:#493c6b; color:#fff; }.editor-panel .hint { color:#b9b1d0; }.color-grid { display:flex; gap:24px; }.theme-row { display:flex; gap:8px; flex-wrap:wrap; }.theme { border:1px solid #5b4a83; color:#fff; border-radius:10px; padding:10px 14px; cursor:pointer; background:#26203d; }.theme-aurora { background:linear-gradient(135deg,#16122e,#6d28d9); }.theme-sunset { background:linear-gradient(135deg,#7c2d12,#fb923c); }.theme-forest { background:linear-gradient(135deg,#14532d,#65a30d); }.sticker-palette { display:flex; flex-wrap:wrap; gap:8px; }.sticker-btn { border:1px solid #58477c; background:#211a3a; border-radius:12px; font-size:24px; width:46px; height:46px; cursor:pointer; transition:transform .15s; }.sticker-btn:hover { transform:translateY(-3px) rotate(-4deg); }.sticker-list { display:flex; gap:8px; flex-wrap:wrap; }.sticker-chip { border:1px solid #66538d; background:#2a2147; color:#fff; border-radius:99px; padding:6px 10px; cursor:pointer; }.sticker-chip small { color:#b8add4; }.editor-warning { color:#ff7b87 !important; border-left:2px solid #ef4444; padding-left:10px; }.floating-sticker { position:absolute; z-index:2; font-size:28px; filter:drop-shadow(0 4px 8px rgba(0,0,0,.18)); transform:rotate(-8deg); }.event-reveal { animation: eventReveal .55s cubic-bezier(.2,.8,.2,1) both; }
+.editor-sidebar { display: flex; flex-direction: column; }.editor-brand { display:flex; gap:10px; align-items:center; margin-bottom: 28px; }.editor-brand > span { display:grid; place-items:center; width:34px; height:34px; border-radius:11px; background:linear-gradient(135deg,#c084fc,#7c3aed); box-shadow:0 0 20px #7c3aed; }.editor-brand strong,.editor-brand small { display:block; }.editor-brand small { color:#aaa3c9; font-size:10px; margin-top:3px; }.editor-tabs { display:flex; flex-direction:column; gap:6px; }.editor-tab { border:0; background:transparent; color:#aaa3c9; text-align:left; padding:12px 10px; border-radius:12px; font:inherit; cursor:pointer; display:flex; gap:10px; align-items:center; }.editor-tab.active { color:#fff; background:rgba(167,139,250,.18); box-shadow:inset 3px 0 #c084fc; }.editor-panel { min-width:0; background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.1); border-radius:18px; padding:22px; }.editor-panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:20px; }.editor-panel h2 { color:#fff; margin:5px 0 0; }.eyebrow { color:#c084fc; font-size:10px; font-weight:700; letter-spacing:.16em; }.editor-status { color:#86efac; font-size:11px; }.control-grid { display:grid; gap:16px; }.editor-panel .label { color:#dcd6f2; }.editor-panel .input,.editor-panel .color { background:rgba(8,6,20,.45); border-color:#493c6b; color:#fff; }.editor-panel .hint { color:#b9b1d0; }.color-grid { display:flex; gap:24px; }.theme-row { display:flex; gap:8px; flex-wrap:wrap; }.theme { border:1px solid #5b4a83; color:#fff; border-radius:10px; padding:10px 14px; cursor:pointer; background:#26203d; }.theme-aurora { background:linear-gradient(135deg,#16122e,#6d28d9); }.theme-sunset { background:linear-gradient(135deg,#7c2d12,#fb923c); }.theme-forest { background:linear-gradient(135deg,#14532d,#65a30d); }.sticker-palette { display:flex; flex-wrap:wrap; gap:8px; }.sticker-btn { border:1px solid #58477c; background:#211a3a; border-radius:12px; font-size:24px; width:46px; height:46px; cursor:pointer; transition:transform .15s; }.sticker-btn:hover { transform:translateY(-3px) rotate(-4deg); }.sticker-list { display:flex; gap:8px; flex-wrap:wrap; }.sticker-chip { border:1px solid #66538d; background:#2a2147; color:#fff; border-radius:99px; padding:6px 10px; cursor:pointer; }.sticker-chip small { color:#b8add4; }.editor-warning { color:#ff7b87 !important; border-left:2px solid #ef4444; padding-left:10px; }.floating-sticker { position:absolute; z-index:12; pointer-events:auto; cursor:move; user-select:none; font-size:28px; filter:drop-shadow(0 4px 8px rgba(0,0,0,.18)); transform:rotate(-8deg); }.floating-sticker.selected { outline:2px dashed #c084fc; outline-offset:4px; }.sticker-resize { position:absolute; right:-7px; bottom:-7px; width:12px; height:12px; border-radius:3px; background:#c084fc; cursor:nwse-resize; }.sticker-delete { position:absolute; top:-12px; right:-12px; border:0; border-radius:50%; width:20px; height:20px; background:#dc2626; color:white; cursor:pointer; line-height:18px; }.event-reveal { animation: eventReveal .55s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes spin { to { transform:rotate(360deg); } } @keyframes orbitPulse { 50% { transform:scale(1.05); box-shadow:0 0 55px #a78bfa, inset 0 0 36px rgba(139,92,246,.7); } } @keyframes coreGlow { to { transform:scale(1.14) rotate(8deg); } } @keyframes fillCine { to { width:100%; } } @keyframes cineText { 0%,18% { opacity:0; transform:translateY(10px); } 24%,44% { opacity:1; transform:translateY(0); } 52%,100% { opacity:0; transform:translateY(-10px); } } @keyframes eventReveal { from { opacity:0; transform:scale(.84) translateY(8px); } to { opacity:1; transform:scale(1) translateY(0); } }
 @media (max-width: 680px) { .editor-layout { display:block; padding:12px; }.editor-sidebar { display:block; }.editor-brand { margin:4px 4px 12px; }.editor-tabs { flex-direction:row; gap:4px; }.editor-tab { flex:1; justify-content:center; padding:10px 4px; font-size:12px; }.editor-tab span { display:none; }.editor-panel { margin-top:10px; padding:16px; }.editor-panel-head { margin-bottom:14px; }.color-grid { gap:14px; }.app { padding:26px 12px 54px; } }
 /* Mode éditeur : atelier + aperçu côte à côte, sans surface blanche. */
@@ -1142,11 +1152,11 @@ html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff;
 .editor-workspace .editor-sidebar { grid-column:1; position:sticky; top:20px; padding:18px 0; }
 .editor-workspace .editor-panel { grid-column:2; position:sticky; top:20px; }
 .editor-workspace .plan-card { grid-column:3; position:sticky; top:20px; margin:0; background:#141026; border-color:#30234d; color:#eee9ff; }
-.editor-workspace .plan-card .export-zone { background:#18132c !important; }
+.editor-workspace .plan-card .export-zone { background:transparent; }
 .editor-workspace .plan-card .day { background:#211a38; border-color:#40335f; }
 .editor-workspace .plan-card .day h3, .editor-workspace .plan-card .legend-item { color:#eee9ff; }
-.editor-workspace .plan-card .event { background:#2a2148 !important; color:#f5f3ff; }
-.editor-workspace .plan-card .event span, .editor-workspace .plan-card .hint, .editor-workspace .plan-card .rest { color:#c8bfdf; }
+.editor-workspace .plan-card .event { background:var(--atelier-event-bg, inherit); color:inherit; }
+.editor-workspace .plan-card .event span, .editor-workspace .plan-card .hint, .editor-workspace .plan-card .rest { color:inherit; }
 .editor-workspace .plan-card .badge-ia { background:#2d2250; color:#d8b4fe; }
 .editor-workspace .plan-card .list li { background:#211a38; border-color:#40335f; color:#f5f3ff; }
 .editor-workspace .plan-card .list small { color:#c8bfdf; }
@@ -1156,7 +1166,13 @@ html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff;
 @media (max-width: 1050px) { .editor-workspace { grid-template-columns:180px minmax(260px,1fr) minmax(320px,1fr); gap:12px; } }
 @media (max-width: 760px) { .editor-workspace { display:block; } .editor-workspace .editor-sidebar, .editor-workspace .editor-panel, .editor-workspace .plan-card { position:static; } .editor-workspace .editor-layout { display:block; } .editor-workspace .plan-card { margin-top:14px; } }
 
-@media print { .editor-layout, .no-print { display:none !important; } .plan-card { border:0; box-shadow:none; } }
+@media print {
+  @page { size: A4 landscape; margin: 8mm; }
+  .editor-layout, .no-print, .week-frame, .plan-card .export-zone, .plan-card > .editor, .plan-card > .hint { display:none !important; }
+  body, .app, .editor-workspace, .editor-workspace .plan-card { background:#fff !important; color:#151515 !important; }
+  .app { max-width:none; padding:0; }.editor-workspace { display:block; }.editor-workspace .plan-card { display:block; border:0; box-shadow:none; margin:0; padding:0; }
+  .print-grid-wrap { --print-accent: var(--atelier-event-bg, #7c3aed); display:block !important; color:#151515; }.print-grid-wrap .print-title { color: var(--print-accent); }
+}
 
 .paint-canvas { position:absolute; inset:0; width:100%; height:100%; z-index:8; touch-action:none; cursor:crosshair; }
 .paint-tools { display:grid; grid-template-columns:repeat(3, minmax(70px,1fr)); gap:8px; }
