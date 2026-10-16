@@ -36,6 +36,104 @@ const CATEGORIES = [
 const STORAGE_KEY = "ruvy-planner-v2";
 const MAX_SHIFT_MIN = 30;
 
+const INTENSE_RE = /hiit|fractionn|sprint|crossfit|combat|boxe|mma|muscu|renforcement|force|course|running|vélo|velo|rameur/i;
+const RECOVERY_RE = /yoga|mobil|étirement|etirement|stretch|marche douce|marche|pilates/i;
+
+function timeForSlot(slot, level = "intermediaire") {
+  const starts = { matin: "07:00", midi: "12:30", soir: "18:00" };
+  const duration = level === "debutant" ? 40 : level === "avance" ? 70 : 55;
+  const start = starts[slot] || "18:00";
+  const endMin = toMin(start) + duration;
+  return { start, end: `${String(Math.floor(endMin / 60)).padStart(2, "0")}:${String(endMin % 60).padStart(2, "0")}` };
+}
+
+function isIntenseEvent(event) {
+  return event?.intensity === "intense" || INTENSE_RE.test(String(event?.title || "")) && !RECOVERY_RE.test(String(event?.title || ""));
+}
+
+function isFixedEvent(event, fixed = []) {
+  return Boolean(event?.fixed) || fixed.some((a) => a.day === event.day && String(a.title).toLowerCase() === String(event.title).toLowerCase() && a.start === event.start && a.end === event.end);
+}
+
+function overlapsAny(event, events) {
+  return events.some((other) => other !== event && other.day === event.day && overlaps(event, other));
+}
+
+function assessLoad(plan) {
+  const events = (plan?.events || []).filter((e) => !e.fixed);
+  const intense = events.filter(isIntenseEvent);
+  const intenseDays = new Set(intense.map((e) => e.day));
+  const activeDays = new Set(events.map((e) => e.day));
+  const dayIndexes = [...intenseDays].map((d) => DAYS.indexOf(d)).sort((a, b) => a - b);
+  const consecutive = dayIndexes.some((d, i) => i > 0 && d === dayIndexes[i - 1] + 1);
+  const noRest = activeDays.size >= DAYS.length;
+  const warnings = [];
+  if (intense.length > 3) warnings.push("⚠ Surcharge : plus de 3 séances intenses cette semaine. Prévois davantage de récupération.");
+  if (consecutive) warnings.push("⚠ Récupération insuffisante : des séances intenses sont prévues sur des jours consécutifs.");
+  if (noRest) warnings.push("⚠ Aucun jour de repos complet cette semaine : allège une journée.");
+  return warnings;
+}
+
+function prepareGeneratedResult(data, inputPeople) {
+  const warnings = [];
+  const plans = (data?.plans || []).map((plan, pi) => {
+    const person = inputPeople[pi] || {};
+    const fixed = Array.isArray(person.fixed) ? person.fixed : [];
+    const level = person.level || "intermediaire";
+    const kept = [];
+    const apiEvents = Array.isArray(plan.events) ? plan.events : [];
+    // Les fixes viennent du questionnaire : on les réinjecte même si l'API les omet,
+    // afin que le contrôle horaire reste exact et qu'aucune séance ne passe dessus.
+    fixed.forEach((activity) => {
+      if (!apiEvents.some((event) => isFixedEvent(event, [activity]))) {
+        kept.push({ ...activity, fixed: true, intensity: "fixe" });
+      }
+    });
+    const candidates = [...apiEvents].sort((a, b) => Number(Boolean(a.fixed)) - Number(Boolean(b.fixed)));
+    candidates.forEach((event) => {
+      const fixedEvent = isFixedEvent(event, fixed);
+      let next = { ...event, fixed: fixedEvent || event.fixed === true, intensity: event.intensity || (isIntenseEvent(event) ? "intense" : "moderee") };
+      if (fixedEvent) { kept.push(next); return; }
+      const slotTimes = timeForSlot(next.slot, level);
+      // La durée est pilotée par le niveau, plutôt que par un créneau générique renvoyé par l'API.
+      const baseDuration = level === "debutant" ? 40 : level === "avance" ? 70 : 55;
+      const boundedStart = Math.max(Number(person.firstSessionHour || 5) * 60, toMin(next.start || slotTimes.start));
+      const boundedEnd = Math.min(Number(person.lastSessionHour || 23) * 60, boundedStart + baseDuration);
+      next = { ...next, start: `${String(Math.floor(boundedStart / 60)).padStart(2, "0")}:${String(boundedStart % 60).padStart(2, "0")}`, end: `${String(Math.floor(boundedEnd / 60)).padStart(2, "0")}:${String(boundedEnd % 60).padStart(2, "0")}`, recovery: level === "debutant" || next.intensity !== "intense" ? "prioritaire" : "standard", progression: next.progression || (level === "debutant" ? "progressive" : level === "avance" ? "charge adaptée" : "progressive") };
+      if (toMin(next.end) <= toMin(next.start) || overlapsAny(next, kept)) {
+        let placed = false;
+        for (let shift = 15; shift <= 12 * 60 && !placed; shift += 15) {
+          for (const delta of [shift, -shift]) {
+            const start = toMin(next.start) + delta;
+            const end = start + baseDuration;
+            const candidate = { ...next, start: `${String(Math.floor(start / 60)).padStart(2, "0")}:${String(start % 60).padStart(2, "0")}`, end: `${String(Math.floor(end / 60)).padStart(2, "0")}:${String(end % 60).padStart(2, "0")}` };
+            if (start >= Number(person.firstSessionHour || 5) * 60 && end <= Number(person.lastSessionHour || 23) * 60 && !overlapsAny(candidate, kept)) { next = candidate; placed = true; break; }
+          }
+        }
+        if (!placed) { warnings.push(`⚠ Séance non placée pour ${person.name || "ce profil"} : aucun créneau libre sans chevauchement.`); return; }
+      }
+      kept.push(next);
+    });
+    // Garantir au moins un jour sans séance générée lorsque c'est possible.
+    const generatedDays = new Set(kept.filter((e) => !e.fixed).map((e) => e.day));
+    if (generatedDays.size === DAYS.length) {
+      const removable = kept
+        .map((event, index) => ({ event, index }))
+        .filter(({ event }) => !event.fixed)
+        .sort((a, b) => Number(isIntenseEvent(b.event)) - Number(isIntenseEvent(a.event)) || toMin(b.event.start) - toMin(a.event.start));
+      const dropped = removable.find(({ event }) => kept.filter((other) => !other.fixed && other.day === event.day).length === 1) || removable[0];
+      if (dropped) {
+        kept.splice(dropped.index, 1);
+        warnings.push(`⚠ Séance non placée pour ${person.name || "ce profil"} : un jour de repos a été réservé.`);
+      }
+    }
+    const loadWarnings = assessLoad({ ...plan, events: kept });
+    warnings.push(...loadWarnings.map((w) => `${person.name || "Profil"} : ${w.replace(/^⚠\s*/, "")}`));
+    return { ...plan, events: kept, warnings: loadWarnings };
+  });
+  return { ...data, plans, warnings: [...(data?.warnings || []), ...warnings] };
+}
+
 function classify(title) {
   const t = String(title).toLowerCase();
   for (const c of CATEGORIES) {
@@ -252,7 +350,8 @@ export default function App() {
       });
       if (!r.ok) throw new Error("Erreur serveur");
       const data = await r.json();
-      setResult(data);
+      const safeData = prepareGeneratedResult(data, people);
+      setResult(safeData);
       setStep(4);
       setActive(0);
       setEditing(null);
@@ -974,6 +1073,7 @@ export default function App() {
                     ? "✨ Planning optimisé par l'IA"
                     : "Planning calculé par l'algorithme"}
                 </p>
+                {result.warnings?.length > 0 && <div className="planning-warnings no-print" role="alert">{result.warnings.map((warning, i) => <p key={i}>{warning}</p>)}</div>}
 
                 {couple && (
                   <div className="legend">
@@ -1142,7 +1242,8 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .cine-line { position: absolute; width: 100%; margin: 0; opacity: 0; font-size: clamp(16px, 2.5vw, 22px); font-weight: 600; letter-spacing: .01em; white-space: nowrap; }
 .line-1 { animation: cineText 6s 0s both; color: #c4b5fd; }.line-2 { animation: cineText 6s 1.5s both; color: #93c5fd; }.line-3 { animation: cineText 6s 3s both; color: #f0abfc; }.line-4 { animation: cineText 6s 4.5s both; color: #86efac; }
 .editor-layout { display: grid; grid-template-columns: 190px 1fr; gap: 20px; margin-bottom: 22px; padding: 18px; border-radius: 24px; background: linear-gradient(135deg,#141126,#1d1534); color: #f5f3ff; box-shadow: 0 24px 70px rgba(53,27,105,.22); }
-.editor-sidebar { display: flex; flex-direction: column; }.editor-brand { display:flex; gap:10px; align-items:center; margin-bottom: 28px; }.editor-brand > span { display:grid; place-items:center; width:34px; height:34px; border-radius:11px; background:linear-gradient(135deg,#c084fc,#7c3aed); box-shadow:0 0 20px #7c3aed; }.editor-brand strong,.editor-brand small { display:block; }.editor-brand small { color:#aaa3c9; font-size:10px; margin-top:3px; }.editor-tabs { display:flex; flex-direction:column; gap:6px; }.editor-tab { border:0; background:transparent; color:#aaa3c9; text-align:left; padding:12px 10px; border-radius:12px; font:inherit; cursor:pointer; display:flex; gap:10px; align-items:center; }.editor-tab.active { color:#fff; background:rgba(167,139,250,.18); box-shadow:inset 3px 0 #c084fc; }.editor-panel { min-width:0; background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.1); border-radius:18px; padding:22px; }.editor-panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:20px; }.editor-panel h2 { color:#fff; margin:5px 0 0; }.eyebrow { color:#c084fc; font-size:10px; font-weight:700; letter-spacing:.16em; }.editor-status { color:#86efac; font-size:11px; }.control-grid { display:grid; gap:16px; }.editor-panel .label { color:#dcd6f2; }.editor-panel .input,.editor-panel .color { background:rgba(8,6,20,.45); border-color:#493c6b; color:#fff; }.editor-panel .hint { color:#b9b1d0; }.color-grid { display:flex; gap:24px; }.theme-row { display:flex; gap:8px; flex-wrap:wrap; }.theme { border:1px solid #5b4a83; color:#fff; border-radius:10px; padding:10px 14px; cursor:pointer; background:#26203d; }.theme-aurora { background:linear-gradient(135deg,#16122e,#6d28d9); }.theme-sunset { background:linear-gradient(135deg,#7c2d12,#fb923c); }.theme-forest { background:linear-gradient(135deg,#14532d,#65a30d); }.sticker-palette { display:flex; flex-wrap:wrap; gap:8px; }.sticker-btn { border:1px solid #58477c; background:#211a3a; border-radius:12px; font-size:24px; width:46px; height:46px; cursor:pointer; transition:transform .15s; }.sticker-btn:hover { transform:translateY(-3px) rotate(-4deg); }.sticker-list { display:flex; gap:8px; flex-wrap:wrap; }.sticker-chip { border:1px solid #66538d; background:#2a2147; color:#fff; border-radius:99px; padding:6px 10px; cursor:pointer; }.sticker-chip small { color:#b8add4; }.editor-warning { color:#ff7b87 !important; border-left:2px solid #ef4444; padding-left:10px; }.floating-sticker { position:absolute; z-index:12; pointer-events:auto; cursor:move; user-select:none; font-size:28px; filter:drop-shadow(0 4px 8px rgba(0,0,0,.18)); transform:rotate(-8deg); }.floating-sticker.selected { outline:2px dashed #c084fc; outline-offset:4px; }.sticker-resize { position:absolute; right:-7px; bottom:-7px; width:12px; height:12px; border-radius:3px; background:#c084fc; cursor:nwse-resize; }.sticker-delete { position:absolute; top:-12px; right:-12px; border:0; border-radius:50%; width:20px; height:20px; background:#dc2626; color:white; cursor:pointer; line-height:18px; }.event-reveal { animation: eventReveal .55s cubic-bezier(.2,.8,.2,1) both; }
+.editor-sidebar { display: flex; flex-direction: column; }.editor-brand { display:flex; gap:10px; align-items:center; margin-bottom: 28px; }.editor-brand > span { display:grid; place-items:center; width:34px; height:34px; border-radius:11px; background:linear-gradient(135deg,#c084fc,#7c3aed); box-shadow:0 0 20px #7c3aed; }.editor-brand strong,.editor-brand small { display:block; }.editor-brand small { color:#aaa3c9; font-size:10px; margin-top:3px; }.editor-tabs { display:flex; flex-direction:column; gap:6px; }.editor-tab { border:0; background:transparent; color:#aaa3c9; text-align:left; padding:12px 10px; border-radius:12px; font:inherit; cursor:pointer; display:flex; gap:10px; align-items:center; }.editor-tab.active { color:#fff; background:rgba(167,139,250,.18); box-shadow:inset 3px 0 #c084fc; }.editor-panel { min-width:0; background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.1); border-radius:18px; padding:22px; }.editor-panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:20px; }.editor-panel h2 { color:#fff; margin:5px 0 0; }.eyebrow { color:#c084fc; font-size:10px; font-weight:700; letter-spacing:.16em; }.editor-status { color:#86efac; font-size:11px; }.control-grid { display:grid; gap:16px; }.editor-panel .label { color:#dcd6f2; }.editor-panel .input,.editor-panel .color { background:rgba(8,6,20,.45); border-color:#493c6b; color:#fff; }.editor-panel .hint { color:#b9b1d0; }.color-grid { display:flex; gap:24px; }.theme-row { display:flex; gap:8px; flex-wrap:wrap; }.theme { border:1px solid #5b4a83; color:#fff; border-radius:10px; padding:10px 14px; cursor:pointer; background:#26203d; }.theme-aurora { background:linear-gradient(135deg,#16122e,#6d28d9); }.theme-sunset { background:linear-gradient(135deg,#7c2d12,#fb923c); }.theme-forest { background:linear-gradient(135deg,#14532d,#65a30d); }.sticker-palette { display:flex; flex-wrap:wrap; gap:8px; }.sticker-btn { border:1px solid #58477c; background:#211a3a; border-radius:12px; font-size:24px; width:46px; height:46px; cursor:pointer; transition:transform .15s; }.sticker-btn:hover { transform:translateY(-3px) rotate(-4deg); }.sticker-list { display:flex; gap:8px; flex-wrap:wrap; }.sticker-chip { border:1px solid #66538d; background:#2a2147; color:#fff; border-radius:99px; padding:6px 10px; cursor:pointer; }.sticker-chip small { color:#b8add4; }.planning-warnings { margin: 0 0 14px; padding: 8px 12px; border-left: 3px solid #dc2626; background: #fff1f2; color: #b91c1c; font-size: 12px; line-height: 1.45; }.planning-warnings p { margin: 0; }.planning-warnings p + p { margin-top: 4px; }
+.editor-warning { color:#ff7b87 !important; border-left:2px solid #ef4444; padding-left:10px; }.floating-sticker { position:absolute; z-index:12; pointer-events:auto; cursor:move; user-select:none; font-size:28px; filter:drop-shadow(0 4px 8px rgba(0,0,0,.18)); transform:rotate(-8deg); }.floating-sticker.selected { outline:2px dashed #c084fc; outline-offset:4px; }.sticker-resize { position:absolute; right:-7px; bottom:-7px; width:12px; height:12px; border-radius:3px; background:#c084fc; cursor:nwse-resize; }.sticker-delete { position:absolute; top:-12px; right:-12px; border:0; border-radius:50%; width:20px; height:20px; background:#dc2626; color:white; cursor:pointer; line-height:18px; }.event-reveal { animation: eventReveal .55s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes spin { to { transform:rotate(360deg); } } @keyframes orbitPulse { 50% { transform:scale(1.05); box-shadow:0 0 55px #a78bfa, inset 0 0 36px rgba(139,92,246,.7); } } @keyframes coreGlow { to { transform:scale(1.14) rotate(8deg); } } @keyframes fillCine { to { width:100%; } } @keyframes cineText { 0%,18% { opacity:0; transform:translateY(10px); } 24%,44% { opacity:1; transform:translateY(0); } 52%,100% { opacity:0; transform:translateY(-10px); } } @keyframes eventReveal { from { opacity:0; transform:scale(.84) translateY(8px); } to { opacity:1; transform:scale(1) translateY(0); } }
 @media (max-width: 680px) { .editor-layout { display:block; padding:12px; }.editor-sidebar { display:block; }.editor-brand { margin:4px 4px 12px; }.editor-tabs { flex-direction:row; gap:4px; }.editor-tab { flex:1; justify-content:center; padding:10px 4px; font-size:12px; }.editor-tab span { display:none; }.editor-panel { margin-top:10px; padding:16px; }.editor-panel-head { margin-bottom:14px; }.color-grid { gap:14px; }.app { padding:26px 12px 54px; } }
 /* Mode éditeur : atelier + aperçu côte à côte, sans surface blanche. */
