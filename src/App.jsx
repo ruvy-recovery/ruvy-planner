@@ -511,7 +511,6 @@ export default function App() {
   // ----- Personnalisation -----
   const setStyleKey = (patch) => setStyle((prev) => ({ ...prev, ...patch }));
 
-  const applyTheme = (theme) => { setPaintBackground(theme.bgColor); setStyleKey(theme); };
   const selectEditorTab = (tab) => { setEditorTab(tab); setPaintTool("move"); setSelectedSticker(null); };
   const selectPaintTool = (tool) => { setPaintTool(tool); setSelectedSticker(null); };
   const addSticker = (sticker) => setStyleKey({ stickers: [...(style.stickers || []), { emoji: sticker, x: 18 + ((style.stickers || []).length * 17) % 70, y: 16 + ((style.stickers || []).length * 23) % 65, size: 28, rotation: -8 }] });
@@ -721,14 +720,13 @@ export default function App() {
     const end = Math.min(23, Math.floor(lastEventMinute / 60));
     const hours = Array.from({ length: Math.max(1, end - start + 1) }, (_, i) => start + i);
     const eventColor = (event) => {
-      if (event?.together) return { bg: event.bgColor || event.color || style.blockColor || "#f5f0ff", border: event.borderColor || style.accent || "#7c3aed", text: event.textColor || style.textColor || "#151515" };
-      if (event?.bgColor || event?.color) return { bg: event.bgColor || event.color, border: event.borderColor || style.accent || "#7c3aed", text: event.textColor || style.textColor || "#151515" };
-      if (style.blockColor) return { bg: style.blockColor, border: style.accent || "#7c3aed", text: style.textColor || "#151515" };
-      return COLORS[event?.owner] || COLORS[0];
+      if (event?.together) return { bg: theme.together, border: theme.together, text: theme.sessionText };
+      const personColor = event?.owner === 1 ? theme.person2 : theme.person1;
+      return { bg: personColor, border: theme.border, text: theme.sessionText };
     };
     const eventsAt = (day, hour) => buildDay(day, false).filter((e) => Number(String(e.start || "").split(":")[0]) === hour);
     return <div id={id} className={`print-grid-wrap${preview ? " print-grid-preview" : ""}`} aria-label="Grille imprimable du planning">
-      <div className="print-sheet" style={{ background: "#fffdf8", color: "#151515", "--print-accent": style.accent || "#7c3aed" }}>
+      <div className="print-sheet" style={{ background: theme.planning, color: theme.text, "--print-bg": theme.planning, "--print-text": theme.text, "--print-border": theme.border, "--print-header": theme.header, "--print-accent": theme.button }}>
         {style.bgImage && <div className="print-bg-image" style={{ backgroundImage: `url(${style.bgImage})`, opacity: style.bgOpacity }} />}
         {(style.stickers || []).map((sticker, i) => <span key={i} className="print-sticker" style={{ left: `${sticker.x}%`, top: `${sticker.y}%`, fontSize: `${sticker.size || 28}px`, transform: `rotate(${sticker.rotation || 0}deg)` }}>{sticker.emoji}</span>)}
         <h2 className="print-title">{style.title || "Mon planning"}</h2>
@@ -760,7 +758,7 @@ export default function App() {
               if (paintTool === "move" && from && from !== d) setAtelierDayOrder(order => { const next=[...order]; const a=next.indexOf(from), b=next.indexOf(d); [next[a],next[b]]=[next[b],next[a]]; return next; });
               atelierDayDragRef.current = null;
             }}
-            style={{ position: "relative", overflow: "hidden", backgroundColor: style.bgColor }}>
+            style={{ position: "relative", overflow: "hidden", backgroundColor: atelierDayOrder.indexOf(d) % 2 ? theme.cellAlt : theme.cell, borderColor: theme.border, color: theme.text }}>
             {dayImg && (
               <div
                 style={{
@@ -775,12 +773,12 @@ export default function App() {
               />
             )}
             <div style={{ position: "relative" }}>
-              <h3 style={{ color: style.textColor || "#151515" }}>{d}</h3>
+              <h3 style={{ color: theme.text, background: theme.header, borderColor: theme.border }}>{d}</h3>
               {merged.length === 0 && <div className="rest">Libre</div>}
               {merged.map((e, i) => {
                 const c = e.together
-                  ? { bg: e.bgColor || e.color || style.blockColor || "#f5f0ff", border: e.borderColor || style.accent || "#7c3aed" }
-                  : (e.bgColor || e.color) ? { bg: e.bgColor || e.color, border: e.borderColor || style.accent } : style.blockColor ? { bg: style.blockColor, border: style.accent } : (COLORS[e.owner] || COLORS[0]);
+                  ? { bg: theme.together, border: theme.together }
+                  : { bg: e.owner === 1 ? theme.person2 : theme.person1, border: theme.border };
                 const warns = interactive && !e.together ? warningsFor(e.owner, e.evIndex) : [];
                 const canEdit = interactive && !e.fixed && !e.together;
                 return (
@@ -794,12 +792,13 @@ export default function App() {
                     style={{
                       background: c.bg,
                       borderLeft: `3px solid ${warns.length ? "#dc2626" : c.border}`,
+                      color: theme.sessionText,
                       opacity: e.fixed ? 0.85 : 1,
                       animationDelay: `${i * 90}ms`,
                     }}
                   >
-                    <strong style={{ color: style.textColor || "#151515" }}>{e.title}</strong>
-                    <span style={{ color: style.textColor || "#151515" }}>{e.start} – {e.end}</span>
+                    <strong style={{ color: theme.sessionText }}>{e.title}</strong>
+                    <span style={{ color: theme.sessionText }}>{e.start} – {e.end}</span>
                     {couple && (
                       <span className="owner">{e.together ? "Ensemble" : e.ownerName}</span>
                     )}
@@ -1129,7 +1128,6 @@ export default function App() {
               {editorTab === "colors" && <div className="control-grid">
                 <label className="label">Titre du planning<input className="input full" value={style.title} onChange={(e) => setStyleKey({ title: e.target.value })} /></label><label className="label">Thème</label><div className="theme-grid"><button className={`theme-option ${themeId === "base" ? "on" : ""}`} onClick={() => setThemeId("base")}>Base <span className="swatches"><i style={{background:"#fff"}}/><i style={{background:"#14532d"}}/><i style={{background:"#f2f8f4"}}/></span></button>{THEMES.map(t=><button key={t.id} className={`theme-option ${themeId===t.id?"on":""}`} onClick={()=>setThemeId(t.id)}>{t.name}<span className="swatches">{[t.vars.cell,t.vars.cellAlt,t.vars.header,t.vars.button].map(c=><i key={c} style={{background:c}}/>)}</span></button>)}</div>
                 <div className="color-grid"><label className="field">Fond<input type="color" className="color" value={style.bgColor} onChange={(e) => setStyleKey({ bgColor: e.target.value })} /></label><label className="field">Accent<input type="color" className="color" value={style.accent} onChange={(e) => setStyleKey({ accent: e.target.value })} /></label><label className="field">Texte<input type="color" className="color" value={style.textColor || "#151515"} onChange={(e) => setStyleKey({ textColor: e.target.value })} /></label></div>
-                <div><label className="label">Thèmes prêts à l'emploi</label><div className="theme-row"><button className="theme theme-aurora" onClick={() => applyTheme({ bgColor: "#101026", accent: "#a78bfa", textColor: "#f5f3ff" })}>Aurora</button><button className="theme theme-sunset" onClick={() => applyTheme({ bgColor: "#fff7ed", accent: "#ea580c", textColor: "#431407" })}>Sunset</button><button className="theme theme-forest" onClick={() => applyTheme({ bgColor: "#f2f8f4", accent: "#14532d", textColor: "#163324" })}>Forêt</button></div></div>
                 <label className="label">Arrière-plan <input type="file" accept="image/*" onChange={onBgImage} /></label>{style.bgImage && <><button className="link" onClick={() => setStyleKey({ bgImage: "" })}>Retirer l'image</button><label className="field slider">Transparence : {Math.round(style.bgOpacity * 100)} %<input type="range" min="0" max="1" step="0.05" value={style.bgOpacity} onChange={(e) => setStyleKey({ bgOpacity: Number(e.target.value) })} /></label></>}
               </div>}
               {editorTab === "paint" && <div className="control-grid"><p className="hint">Dessine directement sur le planning. Le pot colore la zone ciblée, la pipette reprend une couleur, et les personnalisations restent en mémoire uniquement pendant cette session.</p><div className="paint-tools"><button className={paintTool === "move" ? "paint-tool active" : "paint-tool"} onClick={() => selectPaintTool("move")}>↖<small>Clic normal</small></button>{[["pen","✎","Stylo"],["bucket","▧","Pot"],["eraser","⌫","Gomme"],["picker","⌾","Pipette"],["marker","▰","Surligneur"]].map(([id,icon,label]) => <button key={id} className={paintTool===id ? "paint-tool active" : "paint-tool"} onClick={() => selectPaintTool(id)}>{icon}<small>{label}</small></button>)}</div><label className="label">Épaisseur : {paintSize}px<input type="range" min="2" max="32" value={paintSize} onChange={(e) => setPaintSize(Number(e.target.value))} /></label><label className="label">Couleur<input type="color" className="color" value={paintColor} onChange={(e) => setPaintColor(e.target.value)} /></label><div className="paint-actions"><button className="theme" onClick={undoPaint}>↶ Annuler</button><button className="theme" onClick={redoPaint}>↷ Rétablir</button></div><label className="label">Fond du planning<select className="input" value={paintBackground} onChange={(e) => { setPaintBackground(e.target.value); setStyleKey({ bgColor: e.target.value }); }}><option value="#18132c">Violet profond</option><option value="#25143d">Prune</option><option value="#172554">Bleu nuit</option><option value="#1f2937">Ardoise</option></select></label></div>}
@@ -1143,7 +1141,7 @@ export default function App() {
             <div
               ref={exportRef}
               className="export-zone"
-              style={{ "--atelier-event-bg": style.blockColor || "transparent", background: style.bgColor, color: style.textColor || "#151515", borderColor: style.accent, position: "relative", overflow: "hidden" }}
+              style={{ "--atelier-event-bg": style.blockColor || "transparent", background: theme.planning, color: theme.text, borderColor: theme.border, position: "relative", overflow: "hidden" }}
             >
               <canvas ref={paintCanvasRef} className="paint-canvas" style={{ pointerEvents: ["pen", "marker", "eraser", "bucket", "picker"].includes(paintTool) ? "auto" : "none" }} onPointerDown={(e) => { e.preventDefault(); handlePaintPointer(e); }} onMouseDown={(e) => e.preventDefault()} onPointerMove={(e) => { e.preventDefault(); paintDrawingRef.current && paintPoint(e); }} onPointerUp={endPaint} onPointerCancel={endPaint} aria-label="Dessin par-dessus le planning" />
               {style.bgImage && (
@@ -1161,8 +1159,8 @@ export default function App() {
               )}
 
               {(style.stickers || []).map((sticker, i) => <span key={i} className={`floating-sticker ${selectedSticker === i ? "selected" : ""}`} onPointerDown={(e) => startStickerDrag(e, i)} onPointerMove={moveSticker} onPointerUp={endStickerDrag} onPointerCancel={endStickerDrag} onClick={(e) => { e.stopPropagation(); setSelectedSticker(i); }} style={{ left: sticker.x + "%", top: sticker.y + "%", fontSize: (sticker.size || 28) + "px", transform: `rotate(${sticker.rotation || 0}deg)` }}>{sticker.emoji}{selectedSticker === i && <button className="sticker-delete" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); removeSticker(i); setSelectedSticker(null); }}>×</button>}<span className="sticker-resize" onPointerDown={(e) => startStickerDrag(e, i, true)} /></span>)}
-              <div style={{ position: "relative", padding: 20, color: style.textColor || "#151515" }}>
-                <h2 style={{ color: style.accent, marginTop: 0 }}>
+              <div style={{ position: "relative", padding: 20, color: theme.text }}>
+                <h2 style={{ color: theme.button, marginTop: 0 }}>
                   {style.title || (couple ? "Votre planning" : `Planning de ${result.plans[0].name}`)}
                 </h2>
 
@@ -1177,12 +1175,12 @@ export default function App() {
                   <div className="legend">
                     {result.plans.map((p, i) => (
                       <span key={i} className="legend-item">
-                        <span className="dot" style={{ background: COLORS[i].border }} />
+                        <span className="dot" style={{ background: i === 1 ? theme.person2 : theme.person1 }} />
                         {p.name}
                       </span>
                     ))}
                     <span className="legend-item">
-                      <span className="dot" style={{ background: "#7c3aed" }} />
+                      <span className="dot" style={{ background: theme.together }} />
                       Ensemble
                     </span>
                   </div>
@@ -1316,7 +1314,7 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .rest { font-size: 12px; color: rgba(255,255,255,.82); background: rgba(167,139,250,.16); border: 1px solid rgba(167,139,250,.32); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-radius: 8px; padding: 8px; }
 .day-images { display:flex; flex-direction:column; gap:8px; margin-top:4px; }.day-image-row { display:grid; grid-template-columns:72px minmax(0,1fr) auto; align-items:center; gap:10px; }.day-image-row > span { font-weight:600; color:#dcd6f2; }.day-image-row input[type=file] { min-width:0; width:100%; }.day-image-row::after { content:""; }.day-image-row img { width:34px; height:34px; object-fit:cover; border-radius:7px; border:1px solid #66538d; }
 .time-range-fields { align-items: flex-end; margin: 12px 0 18px; }.range-warning { color: #dc2626; font-size: 12px; padding-bottom: 11px; }
-.print-grid-wrap { display:none; }.print-title { color: var(--print-accent, #7c3aed); margin: 0 0 10px; }.print-grid { width:100%; border-collapse:collapse; table-layout:fixed; font-size:10px; }.print-grid th,.print-grid td { border:1px solid color-mix(in srgb, var(--print-accent, #7c3aed) 35%, transparent); padding:4px; vertical-align:top; }.print-grid thead th { background: color-mix(in srgb, var(--print-accent, #7c3aed) 18%, transparent); }.print-grid tbody th { width:42px; text-align:center; }.print-event { background: color-mix(in srgb, var(--print-accent, #7c3aed) 16%, transparent); border-left:2px solid var(--print-accent, #7c3aed); padding:3px; margin:1px 0; display:flex; flex-direction:column; }.print-event span,.print-event small { font-size:9px; }.print-rest { color:#777; font-style:italic; }.print-preview-overlay { position:fixed; inset:0; z-index:100; display:grid; place-items:center; padding:24px; background:rgba(9,8,18,.72); }.print-preview-modal { position:relative; width:min(1100px,96vw); max-height:92vh; overflow:auto; padding:28px; border-radius:18px; background:#fff; color:#151515; box-shadow:0 25px 80px rgba(0,0,0,.4); }.print-preview-modal .print-grid-wrap { display:block; }.print-preview-close { position:absolute; top:12px; right:12px; z-index:1; }
+.print-grid-wrap { display:none; }.print-title { color: var(--print-accent, #7c3aed); margin: 0 0 10px; }.print-grid { width:100%; border-collapse:collapse; table-layout:fixed; font-size:10px; }.print-grid th,.print-grid td { border:1px solid var(--print-border,#e5e7eb); color:var(--print-text,#151515); background:var(--print-bg,#fff); padding:4px; vertical-align:top; }.print-grid thead th { background:var(--print-header,#f1f5f9); }.print-grid tbody th { width:42px; text-align:center; }.print-event { border-left:2px solid var(--print-accent, #7c3aed); padding:3px; margin:1px 0; display:flex; flex-direction:column; }.print-event span,.print-event small { font-size:9px; }.print-rest { color:var(--print-text,#777); font-style:italic; }.print-preview-overlay { position:fixed; inset:0; z-index:100; display:grid; place-items:center; padding:24px; background:rgba(9,8,18,.72); }.print-preview-modal { position:relative; width:min(1100px,96vw); max-height:92vh; overflow:auto; padding:28px; border-radius:18px; background:#fff; color:#151515; box-shadow:0 25px 80px rgba(0,0,0,.4); }.print-preview-modal .print-grid-wrap { display:block; }.print-preview-close { position:absolute; top:12px; right:12px; z-index:1; }
 .event { padding: 8px; border-radius: 8px; margin-bottom: 6px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
 .event.editable { cursor: pointer; }
 .event.editable:hover { box-shadow: 0 0 0 2px rgba(20,83,45,.25); }
@@ -1345,7 +1343,7 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .editor-sidebar { display: flex; flex-direction: column; }.editor-brand { display:flex; gap:10px; align-items:center; margin-bottom: 28px; }.editor-brand > span { display:grid; place-items:center; width:34px; height:34px; border-radius:11px; background:linear-gradient(135deg,#c084fc,#7c3aed); box-shadow:0 0 20px #7c3aed; }.editor-brand strong,.editor-brand small { display:block; }.editor-brand small { color:#aaa3c9; font-size:10px; margin-top:3px; }.editor-tabs { display:flex; flex-direction:column; gap:6px; }.editor-tab { border:0; background:transparent; color:#aaa3c9; text-align:left; padding:12px 10px; border-radius:12px; font:inherit; cursor:pointer; display:flex; gap:10px; align-items:center; }.editor-tab.active { color:#fff; background:rgba(167,139,250,.18); box-shadow:inset 3px 0 #c084fc; }.editor-panel { min-width:0; background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.1); border-radius:18px; padding:22px; }.editor-panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:20px; }.editor-panel h2 { color:#fff; margin:5px 0 0; }.eyebrow { color:#c084fc; font-size:10px; font-weight:700; letter-spacing:.16em; }.editor-status { color:#86efac; font-size:11px; }.control-grid { display:grid; gap:16px; }.editor-panel .label { color:#dcd6f2; }.editor-panel .input,.editor-panel .color { background:rgba(8,6,20,.45); border-color:#493c6b; color:#fff; }.editor-panel .hint { color:#b9b1d0; }.color-grid { display:flex; gap:24px; }.theme-row { display:flex; gap:8px; flex-wrap:wrap; }.theme { border:1px solid #5b4a83; color:#fff; border-radius:10px; padding:10px 14px; cursor:pointer; background:#26203d; }.theme-aurora { background:linear-gradient(135deg,#16122e,#6d28d9); }.theme-sunset { background:linear-gradient(135deg,#7c2d12,#fb923c); }.theme-forest { background:linear-gradient(135deg,#14532d,#65a30d); }.sticker-palette { display:flex; flex-wrap:wrap; gap:8px; }.sticker-btn { border:1px solid #58477c; background:#211a3a; border-radius:12px; font-size:24px; width:46px; height:46px; cursor:pointer; transition:transform .15s; }.sticker-btn:hover { transform:translateY(-3px) rotate(-4deg); }.sticker-list { display:flex; gap:8px; flex-wrap:wrap; }.sticker-chip { border:1px solid #66538d; background:#2a2147; color:#fff; border-radius:99px; padding:6px 10px; cursor:pointer; }.sticker-chip small { color:#b8add4; }.planning-warnings { margin: 0 0 14px; padding: 8px 12px; border-left: 3px solid #dc2626; background: #fff1f2; color: #b91c1c; font-size: 12px; line-height: 1.45; }.planning-warnings p { margin: 0; }.planning-warnings p + p { margin-top: 4px; }
 .editor-warning { color:#ff7b87 !important; border-left:2px solid #ef4444; padding-left:10px; }.floating-sticker { position:absolute; z-index:12; pointer-events:auto; cursor:move; user-select:none; font-size:28px; filter:drop-shadow(0 4px 8px rgba(0,0,0,.18)); transform:rotate(-8deg); }.floating-sticker.selected { outline:2px dashed #c084fc; outline-offset:4px; }.sticker-resize { position:absolute; right:-7px; bottom:-7px; width:12px; height:12px; border-radius:3px; background:#c084fc; cursor:nwse-resize; }.sticker-delete { position:absolute; top:-12px; right:-12px; border:0; border-radius:50%; width:20px; height:20px; background:#dc2626; color:white; cursor:pointer; line-height:18px; }.event-reveal { animation: eventReveal .55s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes spin { to { transform:rotate(360deg); } } @keyframes orbitPulse { 50% { transform:scale(1.05); box-shadow:0 0 55px #a78bfa, inset 0 0 36px rgba(139,92,246,.7); } } @keyframes coreGlow { to { transform:scale(1.14) rotate(8deg); } } @keyframes fillCine { to { width:100%; } } @keyframes cineText { 0%,18% { opacity:0; transform:translateY(10px); } 24%,44% { opacity:1; transform:translateY(0); } 52%,100% { opacity:0; transform:translateY(-10px); } } @keyframes eventReveal { from { opacity:0; transform:scale(.84) translateY(8px); } to { opacity:1; transform:scale(1) translateY(0); } }
-*{scrollbar-color:var(--button) var(--page)}body{background:var(--page);color:var(--ink)}.app{background:var(--page);color:var(--ink)}.card,.tab,.choice,.input,.color,.btn.ghost,.list li{background:var(--panel);color:var(--ink);border-color:var(--border)}.theme-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin:8px 0 14px}.theme-option{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--border);border-radius:12px;background:var(--panel);color:var(--ink);cursor:pointer;font:inherit;text-align:left}.theme-option.on{outline:2px solid var(--button)}.swatches{display:flex;gap:4px}.swatches i{width:18px;height:18px;border-radius:50%;border:1px solid #0003}
+*{scrollbar-color:var(--button) var(--page)}body{background:var(--page);color:var(--ink)}.app{background:var(--page);color:var(--ink)}.card,.tab,.choice,.input,.color,.btn.ghost,.list li{background:var(--panel);color:var(--ink);border-color:var(--border)}.theme-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;margin:6px 0 12px}.theme-option{display:flex;flex-direction:column;gap:5px;min-width:0;padding:7px 8px;border:1px solid var(--border);border-radius:10px;background:var(--panel);color:var(--ink);cursor:pointer;font:inherit;font-size:12px;text-align:left}.theme-option.on{outline:2px solid var(--button)}.swatches{display:flex;gap:3px}.swatches i{width:13px;height:13px;border-radius:50%;border:1px solid #0003}
 @media (max-width: 680px) { .editor-layout { display:block; padding:12px; }.editor-sidebar { display:block; }.editor-brand { margin:4px 4px 12px; }.editor-tabs { flex-direction:row; gap:4px; }.editor-tab { flex:1; justify-content:center; padding:10px 4px; font-size:12px; }.editor-tab span { display:none; }.editor-panel { margin-top:10px; padding:16px; }.editor-panel-head { margin-bottom:14px; }.color-grid { gap:14px; }.app { padding:26px 12px 54px; } }
 /* Mode éditeur : atelier + aperçu côte à côte, sans surface blanche. */
 html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff; }
@@ -1370,7 +1368,7 @@ html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff;
 
 #print-root { display:none; }
 .print-grid-wrap { position:relative; width:100%; }
-.print-sheet { position:relative; padding:10px; border:1px solid var(--print-accent,#7c3aed); overflow:hidden; background:#fffdf8; color:#151515; }
+.print-sheet { position:relative; padding:10px; border:1px solid var(--print-accent,#7c3aed); overflow:hidden; background:var(--print-bg,#fffdf8); color:var(--print-text,#151515); }
 .print-bg-image { position:absolute; inset:0; z-index:0; background-size:cover; background-position:center; pointer-events:none; }
 .print-sticker { position:absolute; z-index:4; pointer-events:none; filter:drop-shadow(0 2px 3px rgba(0,0,0,.2)); }
 .print-title, .print-grid { position:relative; z-index:3; }
@@ -1385,7 +1383,7 @@ html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff;
   #print-root, #print-root * { visibility:visible !important; }
   #print-root { display:block !important; position:absolute !important; inset:0 !important; width:100% !important; height:auto !important; }
   #print-root .print-grid-wrap { display:block !important; width:100% !important; color:#151515; }
-  #print-root .print-sheet { position:relative; width:100%; max-height:none; overflow:hidden; background:#fffdf8 !important; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; transform-origin:top left; }
+  #print-root .print-sheet { position:relative; width:100%; max-height:none; overflow:hidden; background:var(--print-bg,#fffdf8) !important; color:var(--print-text,#151515) !important; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; transform-origin:top left; }
   #print-root .print-grid-wrap { break-inside:avoid; page-break-inside:avoid; }
   #print-root .print-title { color:var(--print-accent,#7c3aed) !important; }
   #print-root .print-bg-image, #print-root .print-day-image { display:block !important; }
