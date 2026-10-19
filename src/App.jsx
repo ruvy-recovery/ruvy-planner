@@ -42,6 +42,15 @@ const THEMES = [
 ];
 
 const STORAGE_KEY = "ruvy-planner-v2";
+
+function readableText(background) {
+  const hex = String(background || "#ffffff").replace("#", "");
+  const rgb = hex.length === 3 ? hex.split("").map((x) => parseInt(x + x, 16)) : [0, 1, 2].map((i) => parseInt(hex.slice(i * 2, i * 2 + 2), 16));
+  const [r, g, b] = rgb.map((n) => Number.isFinite(n) ? n : 255);
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return lum < 0.58 ? "#ffffff" : "#17251f";
+}
+
 const MAX_SHIFT_MIN = 30;
 
 const INTENSE_RE = /hiit|fractionn|sprint|crossfit|combat|boxe|mma|muscu|renforcement|force|course|running|vélo|velo|rameur/i;
@@ -715,145 +724,97 @@ export default function App() {
       });
     });
 
-    if (!mergeCouples) return items.sort((x, y) => x.start.localeCompare(y.start));
-
-    const merged = [];
-    const used = new Set();
-    items.forEach((a, ai) => {
-      if (used.has(ai)) return;
-      const bi = couple
-        ? items.findIndex(
-            (b, j) =>
-              j > ai &&
-              !used.has(j) &&
-              b.owner !== a.owner &&
-              b.title.toLowerCase() === a.title.toLowerCase() &&
-              b.start === a.start &&
-              b.end === a.end
-          )
-        : -1;
-      if (bi >= 0) {
-        used.add(bi);
-        merged.push({ ...a, together: true });
-      } else {
-        merged.push(a);
+    // Identical sessions occupy one block in every representation, including sessions belonging to different people.
+    // This also keeps the preview, print and export representations consistent.
+    const mergedByKey = new Map();
+    items.forEach((event) => {
+      const key = `${String(event.title || "").trim().toLowerCase()}|${event.start}|${event.end}`;
+      const existing = mergedByKey.get(key);
+      if (!existing) mergedByKey.set(key, { ...event, _owners: [event.owner] });
+      else {
+        existing._owners = [...new Set([...existing._owners, event.owner])];
+        existing.together = couple && existing._owners.length > 1;
+        existing.ownerName = existing.together ? "Ensemble" : existing.ownerName;
       }
-      used.add(ai);
     });
-    merged.sort((x, y) => x.start.localeCompare(y.start));
-    return merged;
+    return [...mergedByKey.values()].sort((x, y) => x.start.localeCompare(y.start));
+  };
+
+  const layoutEvents = (events) => {
+    const lanes = [];
+    return [...events].sort((a, b) => toMin(a.start) - toMin(b.start) || toMin(a.end) - toMin(b.end)).map((event) => {
+      let lane = lanes.findIndex((end) => end <= toMin(event.start));
+      if (lane < 0) { lane = lanes.length; lanes.push(0); }
+      lanes[lane] = toMin(event.end);
+      return { event, lane, laneCount: lanes.length };
+    }).map((item) => ({ ...item, laneCount: Math.max(lanes.length, 1) }));
   };
 
   const renderPrintGrid = ({ id, preview = false } = {}) => {
     if (!result) return null;
-    // L'impression suit toujours les séances réellement présentes (y compris fixes,
-    // travail et déplacements manuels), sans reprendre les bornes du questionnaire.
     const printDays = DAYS.map((day) => buildDay(day, false));
     const printEvents = printDays.flat();
     const firstEventMinute = printEvents.length ? Math.min(...printEvents.map((e) => toMin(e.start))) : 6 * 60;
     const lastEventMinute = printEvents.length ? Math.max(...printEvents.map((e) => toMin(e.end))) : 22 * 60;
     const start = Math.max(0, Math.floor(firstEventMinute / 60));
-    const end = Math.min(23, Math.floor(lastEventMinute / 60));
+    const end = Math.min(23, Math.ceil(lastEventMinute / 60) - 1);
     const hours = Array.from({ length: Math.max(1, end - start + 1) }, (_, i) => start + i);
-    const eventColor = (event) => {
-      if (event?.together) return { bg: theme.together, border: theme.together, text: theme.sessionText };
-      const personColor = event?.owner === 1 ? theme.person2 : theme.person1;
-      return { bg: personColor, border: theme.border, text: theme.sessionText };
-    };
-    const eventsAt = (day, hour) => buildDay(day, false).filter((e) => Number(String(e.start || "").split(":")[0]) === hour);
-    // N'afficher que les heures qui contiennent au moins une séance sur la semaine.
-    // Pendant un déplacement, on garde toutes les heures de la plage pour permettre
-    // de déposer une séance dans une ligne qui était vide avant le drag.
-    const visibleHours = draggingEvent
-      ? hours
-      : hours.filter((hour) => DAYS.some((day) => eventsAt(day, hour).length > 0));
+    const eventsAt = (day) => buildDay(day, false);
+    const occupied = new Set(printEvents.flatMap((e) => {
+      const a = Math.floor(toMin(e.start) / 60), b = Math.max(a, Math.ceil(toMin(e.end) / 60) - 1);
+      return Array.from({ length: b - a + 1 }, (_, i) => a + i);
+    }));
+    const visibleHours = draggingEvent ? hours : hours.filter((h) => occupied.has(h));
     const displayHours = visibleHours.length ? visibleHours : [start];
+    const timeline = [];
+    displayHours.forEach((hour, i) => {
+      timeline.push({ type: "hour", hour });
+      const next = displayHours[i + 1];
+      if (next !== undefined && next > hour + 1) timeline.push({ type: "gap", key: `${hour}-${next}` });
+    });
+    const rowHeight = 30;
+    const rowTop = (hour) => timeline.findIndex((r) => r.type === "hour" && r.hour === hour) * rowHeight;
+    const eventColor = (event) => {
+      const bg = event?.together ? theme.together : event?.owner === 1 ? theme.person2 : theme.person1;
+      return { bg, border: theme.border, text: readableText(bg) };
+    };
+    const eventStyle = (event, lane = 0, laneCount = 1) => {
+      const startHour = Math.floor(toMin(event.start) / 60);
+      const duration = Math.max(30, toMin(event.end) - toMin(event.start));
+      const c = eventColor(event);
+      return { ...c, top: rowTop(startHour), height: Math.max(22, duration / 60 * rowHeight - 4), left: `calc(${lane * 100 / laneCount}% + 3px)`, width: `calc(${100 / laneCount}% - 6px)` };
+    };
+    const totalHeight = timeline.reduce((sum, row) => sum + (row.type === "gap" ? 10 : rowHeight), 0);
     return <div id={id} className={`print-grid-wrap${preview ? " print-grid-preview" : ""}`} aria-label="Grille imprimable du planning">
       <div className="print-sheet" style={{ background: (themeId === "base" ? style.bgColor : theme.planning), color: (themeId === "base" ? (style.textColor || "#151515") : theme.text), "--print-bg": (themeId === "base" ? style.bgColor : theme.planning), "--print-text": (themeId === "base" ? (style.textColor || "#151515") : theme.text), "--print-border": theme.border, "--print-header": theme.header, "--print-accent": (themeId === "base" ? (style.accent || "#14532d") : theme.button) }}>
         {style.bgImage && <div className="print-bg-image" style={{ backgroundImage: `url(${style.bgImage})`, opacity: style.bgOpacity }} />}
         {(style.stickers || []).map((sticker, i) => <span key={i} className="print-sticker" style={{ left: `${sticker.x}%`, top: `${sticker.y}%`, fontSize: `${sticker.size || 28}px`, transform: `rotate(${sticker.rotation || 0}deg)` }}>{sticker.emoji}</span>)}
         <h2 className="print-title">{style.title || "Mon planning"}</h2>
         <table className="print-grid"><thead><tr><th style={themeId === "base" ? { background: "#f97316", color: "#fff" } : undefined}>Heure</th>{DAYS.map((d) => <th key={d} style={themeId === "base" ? { background: "#f97316", color: "#fff" } : undefined}>{d}</th>)}</tr></thead>
-          <tbody>{displayHours.map((hour) => <tr key={hour}><th>{hour}h</th>{DAYS.map((day) => {
-            const events = eventsAt(day, hour);
+          <tbody><tr className="agenda-row"><th className="agenda-hours" style={{ height: totalHeight }}>{timeline.map((row) => row.type === "gap" ? <span key={row.key} className="agenda-gap-label">···</span> : <span key={row.hour}>{row.hour}h</span>)}</th>{DAYS.map((day) => {
             const dayImg = style.dayImages?.[day];
-            return <td key={day} style={{ position: "relative", overflow: "hidden" }}>
-              {dayImg && <span className="print-day-image" style={{ backgroundImage: `url(${dayImg})`, opacity: style.dayImageOpacity }} />}
-              <span className="print-cell-content">{events.length ? events.map((e, i) => { const c = eventColor(e); return <span key={i} className="print-event" style={{ background: c.bg, borderLeftColor: c.border, color: c.text }}><strong>{e.title}</strong><span>{e.start} – {e.end}</span>{couple && <small>{e.together ? "Ensemble" : e.ownerName}</small>}</span>; }) : <span className="print-rest">Repos</span>}</span>
-            </td>;
-          })}</tr>)}</tbody></table>
+            return <td key={day} className="agenda-column" style={{ height: totalHeight }}>{dayImg && <span className="print-day-image" style={{ backgroundImage: `url(${dayImg})`, opacity: style.dayImageOpacity }} />}<span className="agenda-track" style={{ height: totalHeight }}>{layoutEvents(eventsAt(day)).map(({ event: e, lane, laneCount }, i) => { const c = eventStyle(e, lane, laneCount); return <span key={i} className="print-event agenda-event" style={{ top: c.top, height: c.height, left: c.left, width: c.width, background: c.bg, borderLeftColor: c.border, color: c.text }}><strong>{e.title}</strong><span>{e.start} – {e.end}</span>{couple && <small>{e.together ? "Ensemble" : e.ownerName}</small>}</span>; })}{eventsAt(day).length === 0 && <span className="print-rest">–</span>}</span></td>;
+          })}</tr></tbody></table>
       </div>
     </div>;
   };
+
   const renderWeek = (interactive) => (
     <div className="week-frame" aria-label="Cadre du planning à sept jours">
-    <div className="week">
-      {atelierDayOrder.map((d) => {
-        const merged = buildDay(d);
-        const dayImg = style.dayImages[d];
-        return (
-          <div key={d} data-day={d} className="day" draggable={false}
-            onDragStart={(e) => { atelierDayDragRef.current = d; e.dataTransfer.effectAllowed = "move"; }}
-            onDragOver={(e) => { if (paintTool === "move") e.preventDefault(); }}
-            onDrop={(e) => {
-              e.preventDefault();
-              const from = atelierDayDragRef.current;
-              if (paintTool === "move" && from && from !== d) setAtelierDayOrder(order => { const next=[...order]; const a=next.indexOf(from), b=next.indexOf(d); [next[a],next[b]]=[next[b],next[a]]; return next; });
-              atelierDayDragRef.current = null;
-            }}
-            style={{ position: "relative", overflow: "hidden", backgroundColor: atelierDayOrder.indexOf(d) % 2 ? (themeId === "base" ? style.bgColor : theme.cellAlt) : (themeId === "base" ? style.bgColor : theme.cell), borderColor: theme.border, color: (themeId === "base" ? (style.textColor || "#151515") : theme.text) }}>
-            {dayImg && (
-              <div
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  backgroundImage: `url(${dayImg})`,
-                  backgroundSize: "cover",
-                  backgroundPosition: "center",
-                  opacity: style.dayImageOpacity,
-                  pointerEvents: "none",
-                }}
-              />
-            )}
-            <div style={{ position: "relative" }}>
-              <h3 style={{ color: (themeId === "base" ? "#fff" : theme.text), background: (themeId === "base" ? "#f97316" : theme.header), borderColor: theme.border }}>{d}</h3>
-              {merged.length === 0 && <div className="rest">Libre</div>}
-              {merged.map((e, i) => {
-                const c = e.together
-                  ? { bg: theme.together, border: theme.together }
-                  : { bg: e.owner === 1 ? theme.person2 : theme.person1, border: theme.border };
-                const warns = interactive && !e.together ? warningsFor(e.owner, e.evIndex) : [];
-                const canEdit = interactive && !e.fixed && !e.together;
-                return (
-                  <div
-                    key={i}
-                    className={(canEdit ? "event editable" : "event") + " event-reveal"}
-                    data-plan={e.owner} data-event={e.evIndex}
-                    onPointerDown={(ev) => beginEventDrag(ev, d)} onPointerMove={moveEvent} onPointerUp={finishMove} onPointerCancel={() => { eventDragRef.current = null; setDraggingEvent(null); }}
-                    onClick={canEdit ? () => { if (!suppressEventClickRef.current) startEdit(e.owner, e.evIndex); } : undefined}
-                    onDoubleClick={() => paintTool === "bucket" && setStyleKey({ blockColor: paintColor })}
-                    style={{
-                      background: c.bg,
-                      borderLeft: `3px solid ${warns.length ? "#dc2626" : c.border}`,
-                      color: theme.sessionText,
-                      opacity: e.fixed ? 0.85 : 1,
-                      animationDelay: `${i * 90}ms`,
-                    }}
-                  >
-                    <strong style={{ color: theme.sessionText }}>{e.title}</strong>
-                    <span style={{ color: theme.sessionText }}>{e.start} – {e.end}</span>
-                    {couple && (
-                      <span className="owner">{e.together ? "Ensemble" : e.ownerName}</span>
-                    )}
-                    {warns.length > 0 && <span className="warn-dot">⚠ à vérifier</span>}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })}
-    </div>
+      <div className="week">
+        {atelierDayOrder.map((d) => {
+          const events = buildDay(d);
+          const hours = [...new Set(events.flatMap((e) => { const a = Math.floor(toMin(e.start) / 60), b = Math.max(a, Math.ceil(toMin(e.end) / 60) - 1); return Array.from({ length: b - a + 1 }, (_, i) => a + i); }))].sort((a, b) => a - b);
+          const dayImg = style.dayImages[d];
+          const eventColor = (e) => { const bg = e.together ? theme.together : e.owner === 1 ? theme.person2 : theme.person1; return { bg, text: readableText(bg), border: theme.border }; };
+          return <div key={d} data-day={d} className="day" draggable={false} style={{ position: "relative", overflow: "hidden", backgroundColor: themeId === "base" ? style.bgColor : (atelierDayOrder.indexOf(d) % 2 ? theme.cellAlt : theme.cell), borderColor: theme.border, color: themeId === "base" ? (style.textColor || "#151515") : theme.text }}>
+            {dayImg && <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${dayImg})`, backgroundSize: "cover", backgroundPosition: "center", opacity: style.dayImageOpacity, pointerEvents: "none" }} />}
+            <div style={{ position: "relative" }}><h3 style={{ color: themeId === "base" ? "#fff" : theme.text, background: themeId === "base" ? "#f97316" : theme.header, borderColor: theme.border }}>{d}</h3>
+              {!events.length && <div className="rest">–</div>}
+              {events.length > 0 && <div className="mini-agenda"><div className="mini-hours">{hours.map((h) => <span key={h}>{h}h</span>)}</div><div className="mini-track"><div className="mini-track-inner">{layoutEvents(events).map(({ event: e, lane, laneCount }, i) => { const c = eventColor(e); const startHour = Math.floor(toMin(e.start) / 60), top = hours.indexOf(startHour) * 34 + (toMin(e.start) % 60) / 60 * 34, height = Math.max(24, (toMin(e.end) - toMin(e.start)) / 60 * 34 - 4); const canEdit = interactive && !e.fixed && !e.together; const warns = canEdit ? warningsFor(e.owner, e.evIndex) : []; return <div key={i} className={(canEdit ? "event editable" : "event") + " event-reveal mini-event"} data-plan={e.owner} data-event={e.evIndex} onPointerDown={(ev) => beginEventDrag(ev, d)} onPointerMove={moveEvent} onPointerUp={finishMove} onPointerCancel={() => { eventDragRef.current = null; setDraggingEvent(null); }} onClick={canEdit ? () => { if (!suppressEventClickRef.current) startEdit(e.owner, e.evIndex); } : undefined} style={{ top, height, left: `${lane * 100 / laneCount}%`, width: `${100 / laneCount}%`, background: c.bg, color: c.text, borderLeft: `3px solid ${warns.length ? "#dc2626" : c.border}`, zIndex: i + 1 }}><strong>{e.title}</strong><span>{e.start} – {e.end}</span>{couple && <span className="owner">{e.together ? "Ensemble" : e.ownerName}</span>}</div>; })}</div></div></div>}
+            </div></div>;
+        })}
+      </div>
     </div>
   );
 
@@ -1361,7 +1322,12 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .event { padding: 8px; border-radius: 8px; margin-bottom: 6px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
 .event.editable { cursor: pointer; }
 .event.editable:hover { box-shadow: 0 0 0 2px rgba(20,83,45,.25); }
-.event span { color: #6b6b6b; }
+.event span { color: inherit; }
+.mini-track { position:relative; min-height:34px; height:100%; }
+.mini-track-inner { position:relative; min-height:100%; height:100%; }
+.mini-event { position:absolute; left:0; right:0; margin:0; overflow:hidden; padding:5px; font-size:10px; line-height:1.15; }
+.mini-event strong, .mini-event span { color:inherit !important; }
+.mini-event .owner { font-size:9px; }
 .warn-dot { color: #dc2626 !important; font-weight: 600; font-size: 11px; }
 .legend { display: flex; flex-wrap: wrap; gap: 16px; margin: 0 0 14px; }
 .legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #444; }
@@ -1416,6 +1382,17 @@ html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff;
 .print-sticker { position:absolute; z-index:4; pointer-events:none; filter:drop-shadow(0 2px 3px rgba(0,0,0,.2)); }
 .print-title, .print-grid { position:relative; z-index:3; }
 .print-grid td { height:28px; }
+.agenda-row > th, .agenda-row > td { padding:0 !important; vertical-align:top; }
+.agenda-hours { position:relative; width:42px; min-width:42px; background:var(--print-bg,#fff); }
+.agenda-hours > span { display:block; height:30px; line-height:30px; text-align:center; }
+.agenda-hours .agenda-gap-label { height:10px; line-height:10px; color:var(--print-text,#777); opacity:.55; font-size:9px; }
+.agenda-column { position:relative; overflow:hidden; }
+.agenda-track { position:relative; display:block; min-height:100%; background:repeating-linear-gradient(to bottom, transparent 0, transparent 29px, var(--print-border,#e5e7eb) 29px, var(--print-border,#e5e7eb) 30px); }
+.agenda-event { position:absolute; left:3px; right:3px; margin:0; box-sizing:border-box; overflow:hidden; z-index:2; }
+.agenda-event strong, .agenda-event span, .agenda-event small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mini-agenda { display:grid; grid-template-columns:34px 1fr; gap:4px; position:relative; }
+.mini-hours { display:flex; flex-direction:column; color:inherit; opacity:.62; font-size:9px; line-height:34px; }
+.mini-track { position:relative; min-height:34px; height:100px; }
 .print-day-image { position:absolute; inset:0; z-index:0; background-size:cover; background-position:center; pointer-events:none; }
 .print-cell-content { position:relative; z-index:1; display:block; }
 
