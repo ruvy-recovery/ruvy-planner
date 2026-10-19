@@ -258,6 +258,7 @@ export default function App() {
   const [paintBackground, setPaintBackground] = useState("#18132c");
   const [paintHistory, setPaintHistory] = useState([]);
   const [paintFuture, setPaintFuture] = useState([]);
+  const [paintSnapshot, setPaintSnapshot] = useState("");
   const paintCanvasRef = useRef(null);
   const paintDrawingRef = useRef(false);
   const [exporting, setExporting] = useState(false);
@@ -338,6 +339,10 @@ export default function App() {
 
   const person = people[active] || people[0];
   const progress = Math.round((Math.min(step, 2) / 2) * 100);
+
+  useEffect(() => {
+    if (step === 4) setPaintTool("move");
+  }, [step]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("editor-active", step === 4);
@@ -518,7 +523,7 @@ export default function App() {
   // ----- Personnalisation -----
   const setStyleKey = (patch) => setStyle((prev) => ({ ...prev, ...patch }));
 
-  const selectEditorTab = (tab) => { setEditorTab(tab); setPaintTool("move"); };
+  const selectEditorTab = (tab) => { setEditorTab(tab); };
   const selectPaintTool = (tool) => { setPaintTool(tool); };
   const addSticker = (sticker) => setStyleKey({ stickers: [...(style.stickers || []), { emoji: sticker, x: 18 + ((style.stickers || []).length * 17) % 70, y: 16 + ((style.stickers || []).length * 23) % 65, size: 28, rotation: -8 }] });
   const updateSticker = (index, patch) => setStyleKey({ stickers: (style.stickers || []).map((s, i) => i === index ? { ...s, ...patch } : s) });
@@ -640,9 +645,13 @@ export default function App() {
     }
     beginPaint(e);
   };
-  const endPaint = () => { paintDrawingRef.current = false; };
-  const undoPaint = () => { const last = paintHistory.at(-1); if (!last) return; setPaintFuture(f => [...f, snapshotCanvas()]); setPaintHistory(h => h.slice(0,-1)); const c=paintCanvasRef.current; if(c){c.getContext("2d").clearRect(0,0,c.width,c.height); restoreCanvas(last);} };
-  const redoPaint = () => { const next = paintFuture.at(-1); if (!next) return; setPaintHistory(h => [...h, snapshotCanvas()]); setPaintFuture(f => f.slice(0,-1)); const c=paintCanvasRef.current; if(c){c.getContext("2d").clearRect(0,0,c.width,c.height); restoreCanvas(next);} };
+  const endPaint = () => {
+    paintDrawingRef.current = false;
+    const snapshot = snapshotCanvas();
+    if (snapshot) setPaintSnapshot(snapshot);
+  };
+  const undoPaint = () => { const last = paintHistory.at(-1); if (!last) return; setPaintFuture(f => [...f, snapshotCanvas()]); setPaintHistory(h => h.slice(0,-1)); const c=paintCanvasRef.current; if(c){c.getContext("2d").clearRect(0,0,c.width,c.height); restoreCanvas(last); setPaintSnapshot(last);} };
+  const redoPaint = () => { const next = paintFuture.at(-1); if (!next) return; setPaintHistory(h => [...h, snapshotCanvas()]); setPaintFuture(f => f.slice(0,-1)); const c=paintCanvasRef.current; if(c){c.getContext("2d").clearRect(0,0,c.width,c.height); restoreCanvas(next); setPaintSnapshot(next);} };
   const groups = groupFixed(person.fixed);
 
   // ----- Construction de la semaine (réutilisée pour l'affichage) -----
@@ -724,12 +733,13 @@ export default function App() {
     return <div id={id} className={`print-grid-wrap${preview ? " print-grid-preview" : ""}`} aria-label="Grille imprimable du planning">
       <div className="print-sheet" style={{ background: (themeId === "base" ? style.bgColor : theme.planning), color: (themeId === "base" ? (style.textColor || "#151515") : theme.text), "--print-bg": (themeId === "base" ? style.bgColor : theme.planning), "--print-text": (themeId === "base" ? (style.textColor || "#151515") : theme.text), "--print-border": theme.border, "--print-header": theme.header, "--print-accent": (themeId === "base" ? (style.accent || "#14532d") : theme.button) }}>
         {style.bgImage && <div className="print-bg-image" style={{ backgroundImage: `url(${style.bgImage})`, opacity: style.bgOpacity }} />}
+        {paintSnapshot && <img className="print-paint-overlay" src={paintSnapshot} alt="Dessin de l’atelier" />}
         {(style.stickers || []).map((sticker, i) => <span key={i} className="print-sticker" style={{ left: `${sticker.x}%`, top: `${sticker.y}%`, fontSize: `${sticker.size || 28}px`, transform: `rotate(${sticker.rotation || 0}deg)` }}>{sticker.emoji}</span>)}
         <h2 className="print-title">{style.title || "Mon planning"}</h2>
         <table className="print-grid"><thead><tr><th style={themeId === "base" ? { background: "#f97316", color: "#fff" } : undefined}>Heure</th>{DAYS.map((d) => <th key={d} style={themeId === "base" ? { background: "#f97316", color: "#fff" } : undefined}>{d}</th>)}</tr></thead>
           <tbody><tr className="agenda-row"><th className="agenda-hours" style={{ height: totalHeight }}>{timeline.map((row) => row.type === "gap" ? <span key={row.key} className="agenda-gap-label">···</span> : <span key={row.hour}>{row.hour}h</span>)}</th>{DAYS.map((day) => {
             const dayImg = style.dayImages?.[day];
-            return <td key={day} className="agenda-column" style={{ height: totalHeight }}>{dayImg && <span className="print-day-image" style={{ backgroundImage: `url(${dayImg})`, opacity: style.dayImageOpacity }} />}<span className="agenda-track" style={{ height: totalHeight }}>{layoutEvents(eventsAt(day)).map(({ event: e, lane, laneCount }, i) => { const c = eventStyle(e, lane, laneCount); return <span key={i} className="print-event agenda-event" onClick={e.evIndex >= 0 ? () => startEdit(e.owner, e.evIndex) : undefined} style={{ top: c.top, height: c.height, left: c.left, width: c.width, background: c.bg, borderLeftColor: c.border, color: c.text, cursor: e.evIndex >= 0 ? "pointer" : "default" }}><strong>{e.title}</strong><span>{e.start} – {e.end}</span>{e.note && <span className="event-note">{e.note}</span>}{couple && <small>{e.together ? "Ensemble" : e.ownerName}</small>}</span>; })}{eventsAt(day).length === 0 && <span className="print-rest">–</span>}</span></td>;
+            return <td key={day} className="agenda-column" style={{ height: totalHeight }}>{dayImg && <span className="print-day-image" style={{ backgroundImage: `url(${dayImg})`, opacity: style.dayImageOpacity }} />}<span className="agenda-track" style={{ height: totalHeight }}>{layoutEvents(eventsAt(day)).map(({ event: e, lane, laneCount }, i) => { const c = eventStyle(e, lane, laneCount); return <span key={i} className="print-event agenda-event" onClick={e.evIndex >= 0 && paintTool === "move" ? () => startEdit(e.owner, e.evIndex) : undefined} style={{ top: c.top, height: c.height, left: c.left, width: c.width, background: c.bg, borderLeftColor: c.border, color: c.text, cursor: e.evIndex >= 0 ? "pointer" : "default" }}><strong>{e.title}</strong><span>{e.start} – {e.end}</span>{e.note && <span className="event-note">{e.note}</span>}{couple && <small>{e.together ? "Ensemble" : e.ownerName}</small>}</span>; })}{eventsAt(day).length === 0 && <span className="print-rest">–</span>}</span></td>;
           })}</tr></tbody></table>
       </div>
     </div>;
@@ -755,7 +765,7 @@ export default function App() {
             {dayImg && <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${dayImg})`, backgroundSize: "cover", backgroundPosition: "center", opacity: style.dayImageOpacity, pointerEvents: "none" }} />}
             <div style={{ position: "relative" }}><h3 style={{ color: themeId === "base" ? "#fff" : theme.text, background: themeId === "base" ? "#f97316" : theme.header, borderColor: theme.border }}>{d}</h3>
               {!events.length && <div className="rest">–</div>}
-              {events.length > 0 && <div className="mini-agenda"><div className="mini-hours" style={{ height: `${hours.length * rowHeight}px` }}>{hours.map((h) => <span key={h}>{h}h</span>)}</div><div className="mini-track" style={{ height: `${hours.length * rowHeight}px` }}><div className="mini-track-inner card-event-stack" style={{ height: `${hours.length * rowHeight}px` }}>{layoutEvents(events).map(({ event: e, lane, laneCount }, i) => { const c = eventColor(e); const top = (toMin(e.start) - firstHour * 60) / 60 * rowHeight, height = Math.max(24, (toMin(e.end) - toMin(e.start)) / 60 * rowHeight - 4); const canEdit = e.evIndex >= 0; const warns = canEdit ? warningsFor(e.owner, e.evIndex) : []; return <div key={i} className={(canEdit ? "event editable" : "event") + " event-reveal mini-event"} data-plan={e.owner} data-event={e.evIndex} onClick={canEdit ? () => startEdit(e.owner, e.evIndex) : undefined} style={{ top, height, left: `${lane * 100 / laneCount}%`, width: `${100 / laneCount}%`, background: c.bg, color: c.text, borderLeft: `3px solid ${warns.length ? "#dc2626" : c.border}`, zIndex: i + 1 }}><strong>{e.title}</strong><span>{e.start} – {e.end}</span>{e.note && <span className="event-note">{e.note}</span>}{couple && <span className="owner">{e.together ? "Ensemble" : e.ownerName}</span>}</div>; })}</div></div></div>}
+              {events.length > 0 && <div className="mini-agenda"><div className="mini-hours" style={{ height: `${hours.length * rowHeight}px` }}>{hours.map((h) => <span key={h}>{h}h</span>)}</div><div className="mini-track" style={{ height: `${hours.length * rowHeight}px` }}><div className="mini-track-inner card-event-stack" style={{ height: `${hours.length * rowHeight}px` }}>{layoutEvents(events).map(({ event: e, lane, laneCount }, i) => { const c = eventColor(e); const top = (toMin(e.start) - firstHour * 60) / 60 * rowHeight, height = Math.max(24, (toMin(e.end) - toMin(e.start)) / 60 * rowHeight - 4); const canEdit = e.evIndex >= 0; const warns = canEdit ? warningsFor(e.owner, e.evIndex) : []; return <div key={i} className={(canEdit ? "event editable" : "event") + " event-reveal mini-event"} data-plan={e.owner} data-event={e.evIndex} onClick={canEdit && paintTool === "move" ? () => startEdit(e.owner, e.evIndex) : undefined} style={{ top, height, left: `${lane * 100 / laneCount}%`, width: `${100 / laneCount}%`, background: c.bg, color: c.text, borderLeft: `3px solid ${warns.length ? "#dc2626" : c.border}`, zIndex: i + 1 }}><strong>{e.title}</strong><span>{e.start} – {e.end}</span>{e.note && <span className="event-note">{e.note}</span>}{couple && <span className="owner">{e.together ? "Ensemble" : e.ownerName}</span>}</div>; })}</div></div></div>}
             </div></div>;
         })}
       </div>
@@ -1450,4 +1460,34 @@ html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff;
 .week-frame .week { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:0; }
 .paint-canvas { user-select:none; -webkit-user-select:none; touch-action:none; }
 @media (max-width:680px) { .week-frame .week { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+
+/* Impression finale : feuille unique A4 paysage, grille complète et sans débordement. */
+.print-paint-overlay { position:absolute; inset:0; width:100%; height:100%; object-fit:fill; z-index:2; pointer-events:none; opacity:1; }
+@media print {
+  @page { size: A4 landscape; margin: 8mm; }
+  *, *::before, *::after { box-sizing:border-box !important; }
+  html, body, #root, .app { width:100% !important; max-width:none !important; min-width:0 !important; margin:0 !important; padding:0 !important; overflow:hidden !important; background:#fff !important; }
+  body * { visibility:hidden !important; }
+  #print-root, #print-root * { visibility:visible !important; }
+  #print-root { display:block !important; position:absolute !important; inset:0 !important; width:100% !important; height:100% !important; max-width:none !important; max-height:none !important; overflow:hidden !important; }
+  #print-root .print-grid-wrap { display:block !important; width:100% !important; height:100% !important; max-width:none !important; max-height:none !important; overflow:hidden !important; break-inside:avoid !important; page-break-inside:avoid !important; }
+  #print-root .print-sheet { position:relative !important; display:flex !important; flex-direction:column !important; width:100% !important; height:100% !important; max-width:none !important; max-height:none !important; min-width:0 !important; overflow:hidden !important; padding:3mm !important; transform:none !important; background:var(--print-bg,#fff) !important; color:var(--print-text,#151515) !important; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; break-inside:avoid !important; page-break-inside:avoid !important; }
+  #print-root .print-title { flex:0 0 auto !important; margin:0 0 2mm !important; font-size:12pt !important; line-height:1.1 !important; }
+  #print-root .print-grid { display:table !important; width:100% !important; height:calc(100% - 9mm) !important; max-width:100% !important; table-layout:fixed !important; border-collapse:collapse !important; font-size:7pt !important; }
+  #print-root .print-grid thead { display:table-header-group !important; }
+  #print-root .print-grid th, #print-root .print-grid td { box-sizing:border-box !important; overflow:hidden !important; padding:1mm !important; line-height:1.05 !important; }
+  #print-root .print-grid thead th { height:7mm !important; font-size:7.5pt !important; }
+  #print-root .print-grid tbody, #print-root .agenda-row { height:100% !important; }
+  #print-root .agenda-row > th, #print-root .agenda-row > td { height:100% !important; vertical-align:top !important; }
+  #print-root .agenda-hours { width:11mm !important; min-width:11mm !important; }
+  #print-root .agenda-hours > span { height:7mm !important; line-height:7mm !important; font-size:6.5pt !important; }
+  #print-root .agenda-column, #print-root .agenda-track { overflow:hidden !important; height:100% !important; min-height:0 !important; }
+  #print-root .agenda-track { background:repeating-linear-gradient(to bottom, transparent 0, transparent calc(7mm - 1px), var(--print-border,#e5e7eb) calc(7mm - 1px), var(--print-border,#e5e7eb) 7mm) !important; }
+  #print-root .agenda-event { max-width:calc(100% - 2mm) !important; padding:1mm !important; margin:0 !important; line-height:1 !important; break-inside:avoid !important; page-break-inside:avoid !important; }
+  #print-root .agenda-event strong, #print-root .agenda-event span, #print-root .agenda-event small { display:block !important; max-width:100% !important; overflow:hidden !important; text-overflow:ellipsis !important; white-space:nowrap !important; }
+  #print-root .agenda-event strong { font-size:6.5pt !important; }
+  #print-root .agenda-event span, #print-root .agenda-event small { font-size:5.8pt !important; }
+  #print-root .print-bg-image, #print-root .print-day-image, #print-root .print-paint-overlay { display:block !important; }
+  .print-preview-overlay { display:none !important; }
+}
 `;
