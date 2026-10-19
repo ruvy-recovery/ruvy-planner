@@ -662,10 +662,12 @@ export default function App() {
   const eventDragRef = useRef(null);
   const suppressEventClickRef = useRef(false);
   const beginEventDrag = (e, day) => {
-    if (paintTool !== "move" || e.button === 2) return;
+    if (paintTool !== "move" || e.button === 2 || e.pointerType === "mouse" && e.button !== 0) return;
+    e.stopPropagation();
     const planIndex = Number(e.currentTarget.dataset.plan), eventIndex = Number(e.currentTarget.dataset.event);
-    if (eventIndex < 0 || result?.plans?.[planIndex]?.events?.[eventIndex]?.fixed) return;
-    eventDragRef.current = { planIndex, eventIndex, day, startX: e.clientX, startY: e.clientY, moved: false };
+    const source = result?.plans?.[planIndex]?.events?.[eventIndex];
+    if (eventIndex < 0 || !source || source.fixed) return;
+    eventDragRef.current = { planIndex, eventIndex, day, startX: e.clientX, startY: e.clientY, moved: false, pointerId: e.pointerId };
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
   const moveEvent = (e) => {
@@ -681,29 +683,41 @@ export default function App() {
     eventDragRef.current = null;
     setDraggingEvent(null);
     if (!drag?.moved || !result) return;
-    const source = result.plans[drag.planIndex]?.events?.[drag.eventIndex];
-    const hit = document.elementFromPoint(e.clientX, e.clientY)?.closest?.(".day");
+    // elementFromPoint is deliberately used at drop time: pointer capture keeps sending
+    // events to the source block, so inspecting currentTarget would lose the destination.
+    const point = document.elementFromPoint(e.clientX, e.clientY);
+    const hit = point?.closest?.(".day");
     const targetDay = hit?.dataset?.day || drag.day;
+    const source = result.plans[drag.planIndex]?.events?.[drag.eventIndex];
     if (!source || !DAYS.includes(targetDay)) return;
     const dayRect = hit?.getBoundingClientRect();
     const duration = Math.max(1, toMin(source.end) - toMin(source.start));
+    // Use the whole visible day as the drop surface; this also works on empty hours.
     const ratio = dayRect ? Math.max(0, Math.min(1, (e.clientY - dayRect.top) / dayRect.height)) : toMin(source.start) / 1440;
-    const startMin = Math.max(0, Math.min(1440 - duration, Math.round(ratio * 1440)));
+    const startMin = Math.max(0, Math.min(1440 - duration, Math.round(ratio * 1440 / 15) * 15));
     const pad = (n) => String(Math.floor(n / 60)).padStart(2, "0") + ":" + String(n % 60).padStart(2, "0");
-    const targetEl = document.elementFromPoint(e.clientX, e.clientY)?.closest?.(".event");
+    const targetEl = point?.closest?.(".event");
     const hitPlan = targetEl ? Number(targetEl.dataset.plan) : drag.planIndex;
     const hitIndex = targetEl ? Number(targetEl.dataset.event) : -1;
     const target = hitIndex >= 0 ? result.plans[hitPlan]?.events?.[hitIndex] : result.plans[drag.planIndex].events.find((ev, i) => i !== drag.eventIndex && !ev.fixed && ev.day === targetDay && startMin >= toMin(ev.start) && startMin < toMin(ev.end));
-    if (target && !target.fixed) {
+    if (target && !target.fixed && !(hitPlan === drag.planIndex && hitIndex === drag.eventIndex)) {
       const targetPlan = hitIndex >= 0 ? hitPlan : drag.planIndex;
       const targetIndex = hitIndex >= 0 ? hitIndex : result.plans[drag.planIndex].events.indexOf(target);
-      updateEvent(drag.planIndex, drag.eventIndex, { day: target.day, start: target.start, end: target.end });
-      updateEvent(targetPlan, targetIndex, { day: source.day, start: source.start, end: source.end });
+      // One functional state update makes the swap atomic, avoiding stale batched updates.
+      setResult((prev) => {
+        if (!prev) return prev;
+        const plans = prev.plans.map((p, pi) => ({ ...p, events: p.events.map((ev, i) => {
+          if (pi === drag.planIndex && i === drag.eventIndex) return { ...ev, day: target.day, start: target.start, end: target.end };
+          if (pi === targetPlan && i === targetIndex) return { ...ev, day: source.day, start: source.start, end: source.end };
+          return ev;
+        }) }));
+        return { ...prev, plans };
+      });
     } else {
       updateEvent(drag.planIndex, drag.eventIndex, { day: targetDay, start: pad(startMin), end: pad(startMin + duration) });
     }
     suppressEventClickRef.current = true;
-    window.setTimeout(() => { suppressEventClickRef.current = false; }, 80);
+    window.setTimeout(() => { suppressEventClickRef.current = false; }, 120);
   };
 
   const groups = groupFixed(person.fixed);
@@ -732,9 +746,16 @@ export default function App() {
       const existing = mergedByKey.get(key);
       if (!existing) mergedByKey.set(key, { ...event, _owners: [event.owner] });
       else {
-        existing._owners = [...new Set([...existing._owners, event.owner])];
-        existing.together = couple && existing._owners.length > 1;
-        existing.ownerName = existing.together ? "Ensemble" : existing.ownerName;
+        // Keep a user-editable event as the representative when a fixed/legacy
+        // duplicate has the same label and time; otherwise the card cannot start a drag.
+        if (existing.fixed && !event.fixed) {
+          const owners = [...new Set([...existing._owners, event.owner])];
+          mergedByKey.set(key, { ...event, _owners: owners, together: couple && owners.length > 1, ownerName: couple && owners.length > 1 ? "Ensemble" : event.ownerName });
+        } else {
+          existing._owners = [...new Set([...existing._owners, event.owner])];
+          existing.together = couple && existing._owners.length > 1;
+          existing.ownerName = existing.together ? "Ensemble" : existing.ownerName;
+        }
       }
     });
     return [...mergedByKey.values()].sort((x, y) => x.start.localeCompare(y.start));
@@ -804,14 +825,16 @@ export default function App() {
       <div className="week">
         {atelierDayOrder.map((d) => {
           const events = buildDay(d);
-          const hours = [...new Set(events.flatMap((e) => { const a = Math.floor(toMin(e.start) / 60), b = Math.max(a, Math.ceil(toMin(e.end) / 60) - 1); return Array.from({ length: b - a + 1 }, (_, i) => a + i); }))].sort((a, b) => a - b);
+          const hours = draggingEvent
+            ? Array.from({ length: 24 }, (_, i) => i)
+            : [...new Set(events.flatMap((e) => { const a = Math.floor(toMin(e.start) / 60), b = Math.max(a, Math.ceil(toMin(e.end) / 60) - 1); return Array.from({ length: b - a + 1 }, (_, i) => a + i); }))].sort((a, b) => a - b);
           const dayImg = style.dayImages[d];
           const eventColor = (e) => { const bg = e.together ? theme.together : e.owner === 1 ? theme.person2 : theme.person1; return { bg, text: readableText(bg), border: theme.border }; };
           return <div key={d} data-day={d} className="day" draggable={false} style={{ position: "relative", overflow: "hidden", backgroundColor: themeId === "base" ? style.bgColor : (atelierDayOrder.indexOf(d) % 2 ? theme.cellAlt : theme.cell), borderColor: theme.border, color: themeId === "base" ? (style.textColor || "#151515") : theme.text }}>
             {dayImg && <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${dayImg})`, backgroundSize: "cover", backgroundPosition: "center", opacity: style.dayImageOpacity, pointerEvents: "none" }} />}
             <div style={{ position: "relative" }}><h3 style={{ color: themeId === "base" ? "#fff" : theme.text, background: themeId === "base" ? "#f97316" : theme.header, borderColor: theme.border }}>{d}</h3>
               {!events.length && <div className="rest">–</div>}
-              {events.length > 0 && <div className="mini-agenda"><div className="mini-hours">{hours.map((h) => <span key={h}>{h}h</span>)}</div><div className="mini-track"><div className="mini-track-inner">{layoutEvents(events).map(({ event: e, lane, laneCount }, i) => { const c = eventColor(e); const startHour = Math.floor(toMin(e.start) / 60), top = hours.indexOf(startHour) * 34 + (toMin(e.start) % 60) / 60 * 34, height = Math.max(24, (toMin(e.end) - toMin(e.start)) / 60 * 34 - 4); const canEdit = interactive && !e.fixed && !e.together; const warns = canEdit ? warningsFor(e.owner, e.evIndex) : []; return <div key={i} className={(canEdit ? "event editable" : "event") + " event-reveal mini-event"} data-plan={e.owner} data-event={e.evIndex} onPointerDown={(ev) => beginEventDrag(ev, d)} onPointerMove={moveEvent} onPointerUp={finishMove} onPointerCancel={() => { eventDragRef.current = null; setDraggingEvent(null); }} onClick={canEdit ? () => { if (!suppressEventClickRef.current) startEdit(e.owner, e.evIndex); } : undefined} style={{ top, height, left: `${lane * 100 / laneCount}%`, width: `${100 / laneCount}%`, background: c.bg, color: c.text, borderLeft: `3px solid ${warns.length ? "#dc2626" : c.border}`, zIndex: i + 1 }}><strong>{e.title}</strong><span>{e.start} – {e.end}</span>{couple && <span className="owner">{e.together ? "Ensemble" : e.ownerName}</span>}</div>; })}</div></div></div>}
+              {events.length > 0 && <div className="mini-agenda"><div className="mini-hours">{hours.map((h) => <span key={h}>{h}h</span>)}</div><div className="mini-track"><div className="mini-track-inner card-event-stack">{layoutEvents(events).map(({ event: e, lane, laneCount }, i) => { const c = eventColor(e); const startHour = Math.floor(toMin(e.start) / 60), top = hours.indexOf(startHour) * 34 + (toMin(e.start) % 60) / 60 * 34, height = Math.max(24, (toMin(e.end) - toMin(e.start)) / 60 * 34 - 4); const canEdit = interactive && !e.fixed && e.evIndex >= 0; const warns = canEdit ? warningsFor(e.owner, e.evIndex) : []; return <div key={i} className={(canEdit ? "event editable" : "event") + " event-reveal mini-event"} data-plan={e.owner} data-event={e.evIndex} onPointerDown={(ev) => beginEventDrag(ev, d)} onPointerMove={moveEvent} onPointerUp={finishMove} onPointerCancel={() => { eventDragRef.current = null; setDraggingEvent(null); }} onClick={canEdit ? () => { if (!suppressEventClickRef.current) startEdit(e.owner, e.evIndex); } : undefined} style={{ top, height, left: `${lane * 100 / laneCount}%`, width: `${100 / laneCount}%`, background: c.bg, color: c.text, borderLeft: `3px solid ${warns.length ? "#dc2626" : c.border}`, zIndex: i + 1 }}><strong>{e.title}</strong><span>{e.start} – {e.end}</span>{couple && <span className="owner">{e.together ? "Ensemble" : e.ownerName}</span>}</div>; })}</div></div></div>}
             </div></div>;
         })}
       </div>
@@ -1328,6 +1351,15 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .mini-event { position:absolute; left:0; right:0; margin:0; overflow:hidden; padding:5px; font-size:10px; line-height:1.15; }
 .mini-event strong, .mini-event span { color:inherit !important; }
 .mini-event .owner { font-size:9px; }
+/* Vue cartes étroites : une seule colonne lisible. La grande grille imprimable
+   conserve son placement en lanes via .print-event/eventStyle. */
+.card-event-stack { display:flex; flex-direction:column; align-items:stretch; gap:6px; height:auto; min-height:34px; }
+.card-event-stack .mini-event { position:relative !important; inset:auto !important; width:100% !important; min-width:0; height:auto !important; min-height:34px; flex:0 0 auto; overflow:visible; white-space:normal; overflow-wrap:break-word; word-break:normal; writing-mode:horizontal-tb; transform:none; }
+.card-event-stack .mini-event strong, .card-event-stack .mini-event span { display:block; white-space:normal; overflow-wrap:anywhere; }
+.card-event-stack .mini-event strong { font-size:11px; line-height:1.2; }
+.card-event-stack .mini-event > span:not(.owner) { font-size:10px; line-height:1.2; }
+.mini-event { touch-action:none; user-select:none; -webkit-user-select:none; }
+
 .warn-dot { color: #dc2626 !important; font-weight: 600; font-size: 11px; }
 .legend { display: flex; flex-wrap: wrap; gap: 16px; margin: 0 0 14px; }
 .legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #444; }
