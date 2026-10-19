@@ -299,7 +299,9 @@ export default function App() {
     sheet.style.transform = `scale(${scale})`;
     sheet.style.width = `${100 / scale}%`;
     root.style.width = `${pageW}px`;
-    root.style.height = `${Math.ceil(contentH * scale)}px`;
+    // Réserver exactement la hauteur utile A4 : le navigateur ne crée pas de page
+    // supplémentaire même si le contenu est plus court que la feuille.
+    root.style.height = `${pageH}px`;
     root.dataset.printScale = String(scale);
     root.dataset.printPrevious = JSON.stringify(previous);
   };
@@ -702,20 +704,12 @@ export default function App() {
     const end = Math.min(23, Math.ceil(lastEventMinute / 60) - 1);
     const hours = Array.from({ length: Math.max(1, end - start + 1) }, (_, i) => start + i);
     const eventsAt = (day) => buildDay(day, false);
-    const occupied = new Set(printEvents.flatMap((e) => {
-      const a = Math.floor(toMin(e.start) / 60), b = Math.max(a, Math.ceil(toMin(e.end) / 60) - 1);
-      return Array.from({ length: b - a + 1 }, (_, i) => a + i);
-    }));
-    const visibleHours = hours.filter((h) => occupied.has(h));
-    const displayHours = visibleHours.length ? visibleHours : [start];
-    const timeline = [];
-    displayHours.forEach((hour, i) => {
-      timeline.push({ type: "hour", hour });
-      const next = displayHours[i + 1];
-      if (next !== undefined && next > hour + 1) timeline.push({ type: "gap", key: `${hour}-${next}` });
-    });
+    // Une ligne par heure, sans supprimer les heures vides : les repères et les blocs
+    // restent ainsi sur une échelle temporelle réelle (px/heure).
+    const displayHours = hours.length ? hours : [start];
+    const timeline = displayHours.map((hour) => ({ type: "hour", hour }));
     const rowHeight = 30;
-    const rowTop = (hour) => timeline.findIndex((r) => r.type === "hour" && r.hour === hour) * rowHeight;
+    const rowTop = (hour) => Math.max(0, hour - start) * rowHeight;
     const eventColor = (event) => {
       const bg = event?.together ? theme.together : event?.color || (event?.owner === 1 ? theme.person2 : theme.person1);
       return { bg, border: theme.border, text: readableText(bg) };
@@ -724,9 +718,9 @@ export default function App() {
       const startHour = Math.floor(toMin(event.start) / 60);
       const duration = Math.max(30, toMin(event.end) - toMin(event.start));
       const c = eventColor(event);
-      return { ...c, top: rowTop(startHour), height: Math.max(22, duration / 60 * rowHeight - 4), left: `calc(${lane * 100 / laneCount}% + 3px)`, width: `calc(${100 / laneCount}% - 6px)` };
+      return { ...c, top: rowTop(startHour) + (toMin(event.start) % 60) / 60 * rowHeight, height: Math.max(22, duration / 60 * rowHeight - 4), left: `calc(${lane * 100 / laneCount}% + 3px)`, width: `calc(${100 / laneCount}% - 6px)` };
     };
-    const totalHeight = timeline.reduce((sum, row) => sum + (row.type === "gap" ? 10 : rowHeight), 0);
+    const totalHeight = Math.max(rowHeight, timeline.length * rowHeight);
     return <div id={id} className={`print-grid-wrap${preview ? " print-grid-preview" : ""}`} aria-label="Grille imprimable du planning">
       <div className="print-sheet" style={{ background: (themeId === "base" ? style.bgColor : theme.planning), color: (themeId === "base" ? (style.textColor || "#151515") : theme.text), "--print-bg": (themeId === "base" ? style.bgColor : theme.planning), "--print-text": (themeId === "base" ? (style.textColor || "#151515") : theme.text), "--print-border": theme.border, "--print-header": theme.header, "--print-accent": (themeId === "base" ? (style.accent || "#14532d") : theme.button) }}>
         {style.bgImage && <div className="print-bg-image" style={{ backgroundImage: `url(${style.bgImage})`, opacity: style.bgOpacity }} />}
@@ -741,24 +735,33 @@ export default function App() {
     </div>;
   };
 
-  const renderWeek = (interactive) => (
+  const renderWeek = (interactive) => {
+    // Une seule échelle temporelle pour les sept jours : les repères horaires
+    // restent donc alignés avec les blocs, y compris lorsqu'un jour est vide.
+    const weekEvents = DAYS.flatMap((day) => buildDay(day));
+    const weekMinutes = weekEvents.flatMap((e) => [toMin(e.start), toMin(e.end)]);
+    const firstHour = weekMinutes.length ? Math.floor(Math.min(...weekMinutes) / 60) : 0;
+    const lastHour = weekMinutes.length ? Math.max(firstHour, Math.ceil(Math.max(...weekMinutes) / 60) - 1) : firstHour;
+    const hours = Array.from({ length: Math.max(1, lastHour - firstHour + 1) }, (_, i) => firstHour + i);
+    const rowHeight = 34;
+    return (
     <div className="week-frame" aria-label="Cadre du planning à sept jours">
       <div className="week">
         {DAYS.map((d) => {
           const events = buildDay(d);
-          const hours = [...new Set(events.flatMap((e) => { const a = Math.floor(toMin(e.start) / 60), b = Math.max(a, Math.ceil(toMin(e.end) / 60) - 1); return Array.from({ length: b - a + 1 }, (_, i) => i + a); }))].sort((a, b) => a - b);
-                    const dayImg = style.dayImages[d];
+          const dayImg = style.dayImages[d];
           const eventColor = (e) => { const bg = e.together ? theme.together : e.color || (e.owner === 1 ? theme.person2 : theme.person1); return { bg, text: readableText(bg), border: theme.border }; };
           return <div key={d} data-day={d} className="day" style={{ position: "relative", overflow: "hidden", backgroundColor: themeId === "base" ? style.bgColor : (DAYS.indexOf(d) % 2 ? theme.cellAlt : theme.cell), borderColor: theme.border, color: themeId === "base" ? (style.textColor || "#151515") : theme.text }}>
             {dayImg && <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${dayImg})`, backgroundSize: "cover", backgroundPosition: "center", opacity: style.dayImageOpacity, pointerEvents: "none" }} />}
             <div style={{ position: "relative" }}><h3 style={{ color: themeId === "base" ? "#fff" : theme.text, background: themeId === "base" ? "#f97316" : theme.header, borderColor: theme.border }}>{d}</h3>
               {!events.length && <div className="rest">–</div>}
-              {events.length > 0 && <div className="mini-agenda"><div className="mini-hours">{hours.map((h) => <span key={h}>{h}h</span>)}</div><div className="mini-track"><div className="mini-track-inner card-event-stack">{layoutEvents(events).map(({ event: e, lane, laneCount }, i) => { const c = eventColor(e); const startHour = Math.floor(toMin(e.start) / 60), top = hours.indexOf(startHour) * 34 + (toMin(e.start) % 60) / 60 * 34, height = Math.max(24, (toMin(e.end) - toMin(e.start)) / 60 * 34 - 4); const canEdit = e.evIndex >= 0; const warns = canEdit ? warningsFor(e.owner, e.evIndex) : []; return <div key={i} className={(canEdit ? "event editable" : "event") + " event-reveal mini-event"} data-plan={e.owner} data-event={e.evIndex} onClick={canEdit ? () => startEdit(e.owner, e.evIndex) : undefined} style={{ top, height, left: `${lane * 100 / laneCount}%`, width: `${100 / laneCount}%`, background: c.bg, color: c.text, borderLeft: `3px solid ${warns.length ? "#dc2626" : c.border}`, zIndex: i + 1 }}><strong>{e.title}</strong><span>{e.start} – {e.end}</span>{e.note && <span className="event-note">{e.note}</span>}{couple && <span className="owner">{e.together ? "Ensemble" : e.ownerName}</span>}</div>; })}</div></div></div>}
+              {events.length > 0 && <div className="mini-agenda"><div className="mini-hours" style={{ height: `${hours.length * rowHeight}px` }}>{hours.map((h) => <span key={h}>{h}h</span>)}</div><div className="mini-track" style={{ height: `${hours.length * rowHeight}px` }}><div className="mini-track-inner card-event-stack" style={{ height: `${hours.length * rowHeight}px` }}>{layoutEvents(events).map(({ event: e, lane, laneCount }, i) => { const c = eventColor(e); const top = (toMin(e.start) - firstHour * 60) / 60 * rowHeight, height = Math.max(24, (toMin(e.end) - toMin(e.start)) / 60 * rowHeight - 4); const canEdit = e.evIndex >= 0; const warns = canEdit ? warningsFor(e.owner, e.evIndex) : []; return <div key={i} className={(canEdit ? "event editable" : "event") + " event-reveal mini-event"} data-plan={e.owner} data-event={e.evIndex} onClick={canEdit ? () => startEdit(e.owner, e.evIndex) : undefined} style={{ top, height, left: `${lane * 100 / laneCount}%`, width: `${100 / laneCount}%`, background: c.bg, color: c.text, borderLeft: `3px solid ${warns.length ? "#dc2626" : c.border}`, zIndex: i + 1 }}><strong>{e.title}</strong><span>{e.start} – {e.end}</span>{e.note && <span className="event-note">{e.note}</span>}{couple && <span className="owner">{e.together ? "Ensemble" : e.ownerName}</span>}</div>; })}</div></div></div>}
             </div></div>;
         })}
       </div>
     </div>
-  );
+    );
+  };
 
   // ----- Panneau d'édition d'un événement -----
   const renderEditor = () => {
@@ -1213,7 +1216,12 @@ export default function App() {
 }
 
 const css = `
-* { box-sizing: border-box; }
+* { box-sizing: border-box; min-width: 0; }
+html, body, #root { max-width: 100%; overflow-x: hidden; }
+img, canvas, svg, video, input, select, textarea, button { max-width: 100%; }
+.editor-panel, .editor-sidebar, .editor-workspace, .plan-card, .export-zone { min-width: 0; max-width: 100%; overflow: hidden; }
+.editor-panel input[type=file] { display: block; width: 100%; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+
 body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .app { max-width: 820px; margin: 0 auto; padding: 48px 20px 80px; font-family: Inter, system-ui, -apple-system, sans-serif; color: #151515; }
 .top h1 { font-size: 32px; margin: 0 0 8px; letter-spacing: -0.03em; font-weight: 700; }
@@ -1363,15 +1371,28 @@ html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff;
 .print-day-image { position:absolute; inset:0; z-index:0; background-size:cover; background-position:center; pointer-events:none; }
 .print-cell-content { position:relative; z-index:1; display:block; }
 
+/* Échelle horaire Atelier : repères et séances partagent exactement la même grille. */
+.mini-agenda { align-items: stretch; }
+.mini-hours { position: relative; line-height: 34px; }
+.mini-hours span { display: block; height: 34px; line-height: 34px; }
+.mini-track, .mini-track-inner { position: relative; min-height: 34px; }
+.card-event-stack { display: block; position: relative; }
+.card-event-stack .mini-event { position: absolute !important; inset: auto !important; margin: 0; overflow: hidden; min-width: 0; max-width: 100%; white-space: normal; }
+.card-event-stack .mini-event strong, .card-event-stack .mini-event span { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 @media print {
   @page { size: A4 landscape; margin: 8mm; }
   html, body { margin:0 !important; background:#fff !important; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
   body * { visibility:hidden !important; }
   #print-root, #print-root * { visibility:visible !important; }
-  #print-root { display:block !important; position:absolute !important; inset:0 !important; width:100% !important; height:auto !important; }
+  #print-root { display:block !important; position:absolute !important; left:0 !important; top:0 !important; width:100% !important; height:100% !important; max-width:100% !important; overflow:hidden !important; }
   #print-root .print-grid-wrap { display:block !important; width:100% !important; color:#151515; }
-  #print-root .print-sheet { position:relative; width:100%; max-height:none; overflow:hidden; background:var(--print-bg,#fffdf8) !important; color:var(--print-text,#151515) !important; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; transform-origin:top left; }
-  #print-root .print-grid-wrap { break-inside:avoid; page-break-inside:avoid; }
+  #print-root .print-sheet { position:relative; width:100%; height:100%; max-width:100%; max-height:100%; overflow:hidden; background:var(--print-bg,#fffdf8) !important; color:var(--print-text,#151515) !important; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; transform-origin:top left; }
+  #print-root .print-grid-wrap { width:100% !important; height:100% !important; break-inside:avoid; page-break-inside:avoid; overflow:hidden !important; }
+  #print-root .print-grid, #print-root .print-sheet { break-inside:avoid; page-break-inside:avoid; }
+  #print-root .print-sheet { display:flex; flex-direction:column; }
+  #print-root .print-grid { flex:1 1 auto; height:calc(100% - 24px); min-height:0; }
+  #print-root .agenda-row, #print-root .agenda-row > th, #print-root .agenda-row > td { height:100% !important; }
   #print-root .print-title { color:var(--print-accent,#7c3aed) !important; font-size:14px !important; margin:0 0 4px !important; }
   /* Impression A4 paysage : densité réduite pour tenir sur une seule page. */
   #print-root .print-sheet { padding:5px !important; }
@@ -1385,6 +1406,31 @@ html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff;
   #print-root .print-rest { font-size:8px !important; }
   #print-root .print-bg-image, #print-root .print-day-image { display:block !important; }
   .print-preview-overlay { display:none !important; }
+}
+
+/* Cadre robuste : aucun enfant ne peut élargir l'atelier ou la grille. */
+.editor-workspace, .editor-layout, .editor-sidebar, .editor-panel, .plan-card, .export-zone, .week-frame, .week, .day, .mini-agenda, .mini-track, .mini-track-inner { min-width:0; max-width:100%; box-sizing:border-box; }
+.editor-panel, .plan-card, .export-zone, .week-frame { overflow:hidden; }
+.week { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.day { overflow:hidden; }
+.day h3, .event, .mini-event, .mini-event strong, .mini-event span { max-width:100%; overflow:hidden; text-overflow:ellipsis; }
+.day-images, .day-image-row, .day-image-row input[type=file] { min-width:0; max-width:100%; }
+.day-image-row { grid-template-columns:44px minmax(0,1fr) auto; }
+.theme-option { min-width:0; max-width:100%; }
+
+/* Impression : une feuille A4 paysage, indépendante de la hauteur écran. */
+@media print {
+  #print-root { width:277mm !important; height:190mm !important; max-width:277mm !important; max-height:190mm !important; }
+  #print-root .print-grid-wrap, #print-root .print-sheet { width:277mm !important; height:190mm !important; max-width:277mm !important; max-height:190mm !important; }
+  #print-root .print-sheet { padding:4mm !important; overflow:hidden !important; }
+  #print-root .print-grid { width:100% !important; height:calc(100% - 18px) !important; table-layout:fixed !important; border-collapse:collapse !important; }
+  #print-root .print-grid th, #print-root .print-grid td { box-sizing:border-box !important; overflow:hidden !important; }
+  #print-root .agenda-row { height:100% !important; }
+  #print-root .agenda-hours, #print-root .agenda-column { height:100% !important; overflow:hidden !important; }
+  #print-root .agenda-track { height:100% !important; min-height:0 !important; overflow:hidden !important; }
+  #print-root .agenda-hours > span { height:30px !important; line-height:30px !important; }
+  #print-root .agenda-event { max-width:calc(100% - 6px) !important; overflow:hidden !important; break-inside:avoid !important; page-break-inside:avoid !important; }
+  #print-root .agenda-event strong, #print-root .agenda-event span, #print-root .agenda-event small { display:block !important; max-width:100% !important; overflow:hidden !important; text-overflow:ellipsis !important; white-space:nowrap !important; }
 }
 
 .paint-canvas { position:absolute; inset:0; width:100%; height:100%; z-index:8; touch-action:none; cursor:crosshair; }
