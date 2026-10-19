@@ -258,11 +258,6 @@ export default function App() {
   const [paintBackground, setPaintBackground] = useState("#18132c");
   const [paintHistory, setPaintHistory] = useState([]);
   const [paintFuture, setPaintFuture] = useState([]);
-  const [draggingEvent, setDraggingEvent] = useState(null);
-  const [selectedSticker, setSelectedSticker] = useState(null);
-  const stickerDragRef = useRef(null);
-  const [atelierDayOrder, setAtelierDayOrder] = useState(DAYS);
-  const atelierDayDragRef = useRef(null);
   const paintCanvasRef = useRef(null);
   const paintDrawingRef = useRef(false);
   const [exporting, setExporting] = useState(false);
@@ -515,29 +510,16 @@ export default function App() {
       updateEvent(planIdx, evIdx, { origStart: ev.start, origEnd: ev.end, origDay: ev.day });
     }
     setEditing({ plan: planIdx, index: evIdx });
+    setEditorTab("edit");
   };
 
   // ----- Personnalisation -----
   const setStyleKey = (patch) => setStyle((prev) => ({ ...prev, ...patch }));
 
-  const selectEditorTab = (tab) => { setEditorTab(tab); setPaintTool("move"); setSelectedSticker(null); };
-  const selectPaintTool = (tool) => { setPaintTool(tool); setSelectedSticker(null); };
+  const selectEditorTab = (tab) => { setEditorTab(tab); setPaintTool("move"); };
+  const selectPaintTool = (tool) => { setPaintTool(tool); };
   const addSticker = (sticker) => setStyleKey({ stickers: [...(style.stickers || []), { emoji: sticker, x: 18 + ((style.stickers || []).length * 17) % 70, y: 16 + ((style.stickers || []).length * 23) % 65, size: 28, rotation: -8 }] });
   const updateSticker = (index, patch) => setStyleKey({ stickers: (style.stickers || []).map((s, i) => i === index ? { ...s, ...patch } : s) });
-  const startStickerDrag = (e, index, resize = false) => {
-    e.stopPropagation(); e.preventDefault();
-    const frame = e.currentTarget.closest(".export-zone"); if (!frame) return;
-    const rect = frame.getBoundingClientRect(); const sticker = style.stickers[index];
-    stickerDragRef.current = { index, resize, rect, startX: e.clientX, startY: e.clientY, startSize: sticker.size || 28, startXPos: sticker.x, startYPos: sticker.y };
-    setSelectedSticker(index); e.currentTarget.setPointerCapture?.(e.pointerId);
-  };
-  const moveSticker = (e) => {
-    const drag = stickerDragRef.current; if (!drag) return;
-    const dx = e.clientX - drag.startX, dy = e.clientY - drag.startY;
-    if (drag.resize) updateSticker(drag.index, { size: Math.max(16, Math.min(140, drag.startSize + (dx + dy) / 2)) });
-    else updateSticker(drag.index, { x: Math.max(0, Math.min(96, drag.startXPos + dx / drag.rect.width * 100)), y: Math.max(0, Math.min(96, drag.startYPos + dy / drag.rect.height * 100)) });
-  };
-  const endStickerDrag = () => { stickerDragRef.current = null; };
   const removeSticker = (index) => setStyleKey({ stickers: (style.stickers || []).filter((_, i) => i !== index) });
 
   const onBgImage = async (e) => {
@@ -659,67 +641,6 @@ export default function App() {
   const endPaint = () => { paintDrawingRef.current = false; };
   const undoPaint = () => { const last = paintHistory.at(-1); if (!last) return; setPaintFuture(f => [...f, snapshotCanvas()]); setPaintHistory(h => h.slice(0,-1)); const c=paintCanvasRef.current; if(c){c.getContext("2d").clearRect(0,0,c.width,c.height); restoreCanvas(last);} };
   const redoPaint = () => { const next = paintFuture.at(-1); if (!next) return; setPaintHistory(h => [...h, snapshotCanvas()]); setPaintFuture(f => f.slice(0,-1)); const c=paintCanvasRef.current; if(c){c.getContext("2d").clearRect(0,0,c.width,c.height); restoreCanvas(next);} };
-  const eventDragRef = useRef(null);
-  const suppressEventClickRef = useRef(false);
-  const beginEventDrag = (e, day) => {
-    if (paintTool !== "move" || e.button === 2 || e.pointerType === "mouse" && e.button !== 0) return;
-    e.stopPropagation();
-    const planIndex = Number(e.currentTarget.dataset.plan), eventIndex = Number(e.currentTarget.dataset.event);
-    const source = result?.plans?.[planIndex]?.events?.[eventIndex];
-    if (eventIndex < 0 || !source || source.fixed) return;
-    eventDragRef.current = { planIndex, eventIndex, day, startX: e.clientX, startY: e.clientY, moved: false, pointerId: e.pointerId };
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-  };
-  const moveEvent = (e) => {
-    const drag = eventDragRef.current;
-    if (!drag || paintTool !== "move") return;
-    const dx = e.clientX - drag.startX, dy = e.clientY - drag.startY;
-    if (!drag.moved && Math.hypot(dx, dy) < 5) return;
-    drag.moved = true;
-    setDraggingEvent({ planIndex: drag.planIndex, eventIndex: drag.eventIndex });
-  };
-  const finishMove = (e) => {
-    const drag = eventDragRef.current;
-    eventDragRef.current = null;
-    setDraggingEvent(null);
-    if (!drag?.moved || !result) return;
-    // elementFromPoint is deliberately used at drop time: pointer capture keeps sending
-    // events to the source block, so inspecting currentTarget would lose the destination.
-    const point = document.elementFromPoint(e.clientX, e.clientY);
-    const hit = point?.closest?.(".day");
-    const targetDay = hit?.dataset?.day || drag.day;
-    const source = result.plans[drag.planIndex]?.events?.[drag.eventIndex];
-    if (!source || !DAYS.includes(targetDay)) return;
-    const dayRect = hit?.getBoundingClientRect();
-    const duration = Math.max(1, toMin(source.end) - toMin(source.start));
-    // Use the whole visible day as the drop surface; this also works on empty hours.
-    const ratio = dayRect ? Math.max(0, Math.min(1, (e.clientY - dayRect.top) / dayRect.height)) : toMin(source.start) / 1440;
-    const startMin = Math.max(0, Math.min(1440 - duration, Math.round(ratio * 1440 / 15) * 15));
-    const pad = (n) => String(Math.floor(n / 60)).padStart(2, "0") + ":" + String(n % 60).padStart(2, "0");
-    const targetEl = point?.closest?.(".event");
-    const hitPlan = targetEl ? Number(targetEl.dataset.plan) : drag.planIndex;
-    const hitIndex = targetEl ? Number(targetEl.dataset.event) : -1;
-    const target = hitIndex >= 0 ? result.plans[hitPlan]?.events?.[hitIndex] : result.plans[drag.planIndex].events.find((ev, i) => i !== drag.eventIndex && !ev.fixed && ev.day === targetDay && startMin >= toMin(ev.start) && startMin < toMin(ev.end));
-    if (target && !target.fixed && !(hitPlan === drag.planIndex && hitIndex === drag.eventIndex)) {
-      const targetPlan = hitIndex >= 0 ? hitPlan : drag.planIndex;
-      const targetIndex = hitIndex >= 0 ? hitIndex : result.plans[drag.planIndex].events.indexOf(target);
-      // One functional state update makes the swap atomic, avoiding stale batched updates.
-      setResult((prev) => {
-        if (!prev) return prev;
-        const plans = prev.plans.map((p, pi) => ({ ...p, events: p.events.map((ev, i) => {
-          if (pi === drag.planIndex && i === drag.eventIndex) return { ...ev, day: target.day, start: target.start, end: target.end };
-          if (pi === targetPlan && i === targetIndex) return { ...ev, day: source.day, start: source.start, end: source.end };
-          return ev;
-        }) }));
-        return { ...prev, plans };
-      });
-    } else {
-      updateEvent(drag.planIndex, drag.eventIndex, { day: targetDay, start: pad(startMin), end: pad(startMin + duration) });
-    }
-    suppressEventClickRef.current = true;
-    window.setTimeout(() => { suppressEventClickRef.current = false; }, 120);
-  };
-
   const groups = groupFixed(person.fixed);
 
   // ----- Construction de la semaine (réutilisée pour l'affichage) -----
@@ -747,7 +668,7 @@ export default function App() {
       if (!existing) mergedByKey.set(key, { ...event, _owners: [event.owner] });
       else {
         // Keep a user-editable event as the representative when a fixed/legacy
-        // duplicate has the same label and time; otherwise the card cannot start a drag.
+        // duplicate has the same label and time; otherwise the card cannot be edited.
         if (existing.fixed && !event.fixed) {
           const owners = [...new Set([...existing._owners, event.owner])];
           mergedByKey.set(key, { ...event, _owners: owners, together: couple && owners.length > 1, ownerName: couple && owners.length > 1 ? "Ensemble" : event.ownerName });
@@ -785,7 +706,7 @@ export default function App() {
       const a = Math.floor(toMin(e.start) / 60), b = Math.max(a, Math.ceil(toMin(e.end) / 60) - 1);
       return Array.from({ length: b - a + 1 }, (_, i) => a + i);
     }));
-    const visibleHours = draggingEvent ? hours : hours.filter((h) => occupied.has(h));
+    const visibleHours = hours.filter((h) => occupied.has(h));
     const displayHours = visibleHours.length ? visibleHours : [start];
     const timeline = [];
     displayHours.forEach((hour, i) => {
@@ -796,7 +717,7 @@ export default function App() {
     const rowHeight = 30;
     const rowTop = (hour) => timeline.findIndex((r) => r.type === "hour" && r.hour === hour) * rowHeight;
     const eventColor = (event) => {
-      const bg = event?.together ? theme.together : event?.owner === 1 ? theme.person2 : theme.person1;
+      const bg = event?.together ? theme.together : event?.color || (event?.owner === 1 ? theme.person2 : theme.person1);
       return { bg, border: theme.border, text: readableText(bg) };
     };
     const eventStyle = (event, lane = 0, laneCount = 1) => {
@@ -814,7 +735,7 @@ export default function App() {
         <table className="print-grid"><thead><tr><th style={themeId === "base" ? { background: "#f97316", color: "#fff" } : undefined}>Heure</th>{DAYS.map((d) => <th key={d} style={themeId === "base" ? { background: "#f97316", color: "#fff" } : undefined}>{d}</th>)}</tr></thead>
           <tbody><tr className="agenda-row"><th className="agenda-hours" style={{ height: totalHeight }}>{timeline.map((row) => row.type === "gap" ? <span key={row.key} className="agenda-gap-label">···</span> : <span key={row.hour}>{row.hour}h</span>)}</th>{DAYS.map((day) => {
             const dayImg = style.dayImages?.[day];
-            return <td key={day} className="agenda-column" style={{ height: totalHeight }}>{dayImg && <span className="print-day-image" style={{ backgroundImage: `url(${dayImg})`, opacity: style.dayImageOpacity }} />}<span className="agenda-track" style={{ height: totalHeight }}>{layoutEvents(eventsAt(day)).map(({ event: e, lane, laneCount }, i) => { const c = eventStyle(e, lane, laneCount); return <span key={i} className="print-event agenda-event" style={{ top: c.top, height: c.height, left: c.left, width: c.width, background: c.bg, borderLeftColor: c.border, color: c.text }}><strong>{e.title}</strong><span>{e.start} – {e.end}</span>{couple && <small>{e.together ? "Ensemble" : e.ownerName}</small>}</span>; })}{eventsAt(day).length === 0 && <span className="print-rest">–</span>}</span></td>;
+            return <td key={day} className="agenda-column" style={{ height: totalHeight }}>{dayImg && <span className="print-day-image" style={{ backgroundImage: `url(${dayImg})`, opacity: style.dayImageOpacity }} />}<span className="agenda-track" style={{ height: totalHeight }}>{layoutEvents(eventsAt(day)).map(({ event: e, lane, laneCount }, i) => { const c = eventStyle(e, lane, laneCount); return <span key={i} className="print-event agenda-event" onClick={e.evIndex >= 0 ? () => startEdit(e.owner, e.evIndex) : undefined} style={{ top: c.top, height: c.height, left: c.left, width: c.width, background: c.bg, borderLeftColor: c.border, color: c.text, cursor: e.evIndex >= 0 ? "pointer" : "default" }}><strong>{e.title}</strong><span>{e.start} – {e.end}</span>{e.note && <span className="event-note">{e.note}</span>}{couple && <small>{e.together ? "Ensemble" : e.ownerName}</small>}</span>; })}{eventsAt(day).length === 0 && <span className="print-rest">–</span>}</span></td>;
           })}</tr></tbody></table>
       </div>
     </div>;
@@ -823,18 +744,16 @@ export default function App() {
   const renderWeek = (interactive) => (
     <div className="week-frame" aria-label="Cadre du planning à sept jours">
       <div className="week">
-        {atelierDayOrder.map((d) => {
+        {DAYS.map((d) => {
           const events = buildDay(d);
-          const hours = draggingEvent
-            ? Array.from({ length: 24 }, (_, i) => i)
-            : [...new Set(events.flatMap((e) => { const a = Math.floor(toMin(e.start) / 60), b = Math.max(a, Math.ceil(toMin(e.end) / 60) - 1); return Array.from({ length: b - a + 1 }, (_, i) => a + i); }))].sort((a, b) => a - b);
-          const dayImg = style.dayImages[d];
-          const eventColor = (e) => { const bg = e.together ? theme.together : e.owner === 1 ? theme.person2 : theme.person1; return { bg, text: readableText(bg), border: theme.border }; };
-          return <div key={d} data-day={d} className="day" draggable={false} style={{ position: "relative", overflow: "hidden", backgroundColor: themeId === "base" ? style.bgColor : (atelierDayOrder.indexOf(d) % 2 ? theme.cellAlt : theme.cell), borderColor: theme.border, color: themeId === "base" ? (style.textColor || "#151515") : theme.text }}>
+          const hours = [...new Set(events.flatMap((e) => { const a = Math.floor(toMin(e.start) / 60), b = Math.max(a, Math.ceil(toMin(e.end) / 60) - 1); return Array.from({ length: b - a + 1 }, (_, i) => i + a); }))].sort((a, b) => a - b);
+                    const dayImg = style.dayImages[d];
+          const eventColor = (e) => { const bg = e.together ? theme.together : e.color || (e.owner === 1 ? theme.person2 : theme.person1); return { bg, text: readableText(bg), border: theme.border }; };
+          return <div key={d} data-day={d} className="day" style={{ position: "relative", overflow: "hidden", backgroundColor: themeId === "base" ? style.bgColor : (DAYS.indexOf(d) % 2 ? theme.cellAlt : theme.cell), borderColor: theme.border, color: themeId === "base" ? (style.textColor || "#151515") : theme.text }}>
             {dayImg && <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${dayImg})`, backgroundSize: "cover", backgroundPosition: "center", opacity: style.dayImageOpacity, pointerEvents: "none" }} />}
             <div style={{ position: "relative" }}><h3 style={{ color: themeId === "base" ? "#fff" : theme.text, background: themeId === "base" ? "#f97316" : theme.header, borderColor: theme.border }}>{d}</h3>
               {!events.length && <div className="rest">–</div>}
-              {events.length > 0 && <div className="mini-agenda"><div className="mini-hours">{hours.map((h) => <span key={h}>{h}h</span>)}</div><div className="mini-track"><div className="mini-track-inner card-event-stack">{layoutEvents(events).map(({ event: e, lane, laneCount }, i) => { const c = eventColor(e); const startHour = Math.floor(toMin(e.start) / 60), top = hours.indexOf(startHour) * 34 + (toMin(e.start) % 60) / 60 * 34, height = Math.max(24, (toMin(e.end) - toMin(e.start)) / 60 * 34 - 4); const canEdit = interactive && !e.fixed && e.evIndex >= 0; const warns = canEdit ? warningsFor(e.owner, e.evIndex) : []; return <div key={i} className={(canEdit ? "event editable" : "event") + " event-reveal mini-event"} data-plan={e.owner} data-event={e.evIndex} onPointerDown={(ev) => beginEventDrag(ev, d)} onPointerMove={moveEvent} onPointerUp={finishMove} onPointerCancel={() => { eventDragRef.current = null; setDraggingEvent(null); }} onClick={canEdit ? () => { if (!suppressEventClickRef.current) startEdit(e.owner, e.evIndex); } : undefined} style={{ top, height, left: `${lane * 100 / laneCount}%`, width: `${100 / laneCount}%`, background: c.bg, color: c.text, borderLeft: `3px solid ${warns.length ? "#dc2626" : c.border}`, zIndex: i + 1 }}><strong>{e.title}</strong><span>{e.start} – {e.end}</span>{couple && <span className="owner">{e.together ? "Ensemble" : e.ownerName}</span>}</div>; })}</div></div></div>}
+              {events.length > 0 && <div className="mini-agenda"><div className="mini-hours">{hours.map((h) => <span key={h}>{h}h</span>)}</div><div className="mini-track"><div className="mini-track-inner card-event-stack">{layoutEvents(events).map(({ event: e, lane, laneCount }, i) => { const c = eventColor(e); const startHour = Math.floor(toMin(e.start) / 60), top = hours.indexOf(startHour) * 34 + (toMin(e.start) % 60) / 60 * 34, height = Math.max(24, (toMin(e.end) - toMin(e.start)) / 60 * 34 - 4); const canEdit = e.evIndex >= 0; const warns = canEdit ? warningsFor(e.owner, e.evIndex) : []; return <div key={i} className={(canEdit ? "event editable" : "event") + " event-reveal mini-event"} data-plan={e.owner} data-event={e.evIndex} onClick={canEdit ? () => startEdit(e.owner, e.evIndex) : undefined} style={{ top, height, left: `${lane * 100 / laneCount}%`, width: `${100 / laneCount}%`, background: c.bg, color: c.text, borderLeft: `3px solid ${warns.length ? "#dc2626" : c.border}`, zIndex: i + 1 }}><strong>{e.title}</strong><span>{e.start} – {e.end}</span>{e.note && <span className="event-note">{e.note}</span>}{couple && <span className="owner">{e.together ? "Ensemble" : e.ownerName}</span>}</div>; })}</div></div></div>}
             </div></div>;
         })}
       </div>
@@ -853,6 +772,18 @@ export default function App() {
         <div className="editor-head">
           <strong>Modifier : {ev.title}</strong>
           <button className="link" onClick={() => setEditing(null)}>Fermer</button>
+        </div>
+
+        <div className="row editor-session-fields">
+          <label className="field">Titre
+            <input className="input" value={ev.title || ""} onChange={(e) => updateEvent(editing.plan, editing.index, { title: e.target.value })} />
+          </label>
+          <label className="field">Note
+            <input className="input" value={ev.note || ""} onChange={(e) => updateEvent(editing.plan, editing.index, { note: e.target.value })} />
+          </label>
+          <label className="field">Couleur
+            <input type="color" className="color" value={ev.color || "#79e0bd"} onChange={(e) => updateEvent(editing.plan, editing.index, { color: e.target.value })} />
+          </label>
         </div>
 
         <div className="row">
@@ -879,6 +810,16 @@ export default function App() {
               className="input"
               value={ev.end}
               onChange={(e) => updateEvent(editing.plan, editing.index, { end: e.target.value })}
+            />
+          </label>
+          <label className="field">Durée (min)
+            <input
+              type="number"
+              min="5"
+              step="5"
+              className="input"
+              value={Math.max(5, toMin(ev.end) - toMin(ev.start))}
+              onChange={(e) => updateEvent(editing.plan, editing.index, { end: (() => { const total = toMin(ev.start) + Math.max(5, Number(e.target.value) || 5); return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`; })() })}
             />
           </label>
           <button className="btn ghost" onClick={() => deleteEvent(editing.plan, editing.index)}>
@@ -1159,7 +1100,7 @@ export default function App() {
               </div>}
               {editorTab === "paint" && <div className="control-grid"><p className="hint">Dessine directement sur le planning. Le pot colore la zone ciblée, la pipette reprend une couleur, et les personnalisations restent en mémoire uniquement pendant cette session.</p><div className="paint-tools"><button className={paintTool === "move" ? "paint-tool active" : "paint-tool"} onClick={() => selectPaintTool("move")}>↖<small>Clic normal</small></button>{[["pen","✎","Stylo"],["bucket","▧","Pot"],["eraser","⌫","Gomme"],["picker","⌾","Pipette"],["marker","▰","Surligneur"]].map(([id,icon,label]) => <button key={id} className={paintTool===id ? "paint-tool active" : "paint-tool"} onClick={() => selectPaintTool(id)}>{icon}<small>{label}</small></button>)}</div><label className="label">Épaisseur : {paintSize}px<input type="range" min="2" max="32" value={paintSize} onChange={(e) => setPaintSize(Number(e.target.value))} /></label><label className="label">Couleur<input type="color" className="color" value={paintColor} onChange={(e) => setPaintColor(e.target.value)} /></label><div className="paint-actions"><button className="theme" onClick={undoPaint}>↶ Annuler</button><button className="theme" onClick={redoPaint}>↷ Rétablir</button></div><label className="label">Fond du planning<select className="input" value={paintBackground} onChange={(e) => { setPaintBackground(e.target.value); setStyleKey({ bgColor: e.target.value }); }}><option value="#18132c">Violet profond</option><option value="#25143d">Prune</option><option value="#172554">Bleu nuit</option><option value="#1f2937">Ardoise</option></select></label></div>}
               {editorTab === "stickers" && <div className="control-grid"><p className="hint">Choisis un signe distinctif, puis ajoute des images par jour comme arrière-plan ou logo.</p><div className="sticker-palette">{["🔥","⚡","🏋️","🥊","🏃","🧘","🚴","🏆","💪","🌙"].map((x) => <button key={x} className="sticker-btn" onClick={() => addSticker(x)}>{x}</button>)}</div><label className="label">Images / logos par jour</label><div className="day-images">{DAYS.map((d) => <div key={d} className="day-image-row"><span>{SHORT[d]}</span><input type="file" accept="image/*" onChange={(e) => onDayImage(d, e)} />{style.dayImages[d] && <img src={style.dayImages[d]} alt={`Miniature ${SHORT[d]}`} />}{style.dayImages[d] && <button className="link" onClick={() => removeDayImage(d)}>Retirer</button>}</div>)}</div>{Object.keys(style.dayImages).length > 0 && <label className="field slider">Transparence : {Math.round(style.dayImageOpacity * 100)} %<input type="range" min="0" max="1" step="0.05" value={style.dayImageOpacity} onChange={(e) => setStyleKey({ dayImageOpacity: Number(e.target.value) })} /></label>}<div className="sticker-list">{(style.stickers || []).map((s, i) => <button key={i} className="sticker-chip" onClick={() => removeSticker(i)}>{s.emoji} <small>retirer</small></button>)}</div></div>}
-              {editorTab === "edit" && <div className="control-grid"><p className="hint">Clique sur une séance ajoutée dans le planning pour modifier son jour, ses horaires ou la supprimer.</p>{renderEditor()}<p className="warn-text editor-warning">⚠ Les séances ajoutées peuvent être décalées de 30 minutes maximum. Les avertissements restent sans blocage.</p></div>}
+              {editorTab === "edit" && <div className="control-grid"><p className="hint">Modifie ici la séance sélectionnée : jour, heure, durée, titre, note et couleur.</p>{renderEditor()}<p className="warn-text editor-warning">⚠ Les avertissements restent sans blocage.</p></div>}
             </section>
           </div>
 
@@ -1185,7 +1126,7 @@ export default function App() {
                 />
               )}
 
-              {(style.stickers || []).map((sticker, i) => <span key={i} className={`floating-sticker ${selectedSticker === i ? "selected" : ""}`} onPointerDown={(e) => startStickerDrag(e, i)} onPointerMove={moveSticker} onPointerUp={endStickerDrag} onPointerCancel={endStickerDrag} onClick={(e) => { e.stopPropagation(); setSelectedSticker(i); }} style={{ left: sticker.x + "%", top: sticker.y + "%", fontSize: (sticker.size || 28) + "px", transform: `rotate(${sticker.rotation || 0}deg)` }}>{sticker.emoji}{selectedSticker === i && <button className="sticker-delete" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); removeSticker(i); setSelectedSticker(null); }}>×</button>}<span className="sticker-resize" onPointerDown={(e) => startStickerDrag(e, i, true)} /></span>)}
+              {(style.stickers || []).map((sticker, i) => <span key={i} className="floating-sticker" style={{ left: sticker.x + "%", top: sticker.y + "%", fontSize: (sticker.size || 28) + "px", transform: `rotate(${sticker.rotation || 0}deg)` }}>{sticker.emoji}{false && <button className="sticker-delete" onClick={(e) => { e.stopPropagation(); removeSticker(i); }}>×</button>}</span>)}
               <div style={{ position: "relative", padding: 20, color: theme.text }}>
                 <h2 style={{ color: (themeId === "base" ? (style.accent || "#14532d") : theme.button), marginTop: 0 }}>
                   {style.title || (couple ? "Votre planning" : `Planning de ${result.plans[0].name}`)}
@@ -1213,7 +1154,7 @@ export default function App() {
                   </div>
                 )}
 
-                {renderWeek(!exporting)}
+                {renderWeek(true)}
                 {renderPrintGrid()}
 
                 {couple && result.commonSlots?.length > 0 && (
@@ -1231,11 +1172,6 @@ export default function App() {
               </div>
             </div>
 
-            {renderEditor()}
-
-            <p className="hint small no-print">
-              Clique sur une séance ajoutée pour la modifier. Les séances que tu as déjà fixées ne se déplacent pas.
-            </p>
 
             <div className="row no-print end">
               <button className="btn ghost" onClick={restart}>Recommencer</button>
@@ -1358,7 +1294,6 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .card-event-stack .mini-event strong, .card-event-stack .mini-event span { display:block; white-space:normal; overflow-wrap:anywhere; }
 .card-event-stack .mini-event strong { font-size:11px; line-height:1.2; }
 .card-event-stack .mini-event > span:not(.owner) { font-size:10px; line-height:1.2; }
-.mini-event { touch-action:none; user-select:none; -webkit-user-select:none; }
 
 .warn-dot { color: #dc2626 !important; font-weight: 600; font-size: 11px; }
 .legend { display: flex; flex-wrap: wrap; gap: 16px; margin: 0 0 14px; }
@@ -1382,9 +1317,9 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .line-1 { animation: cineText 6s 0s both; color: #c4b5fd; }.line-2 { animation: cineText 6s 1.5s both; color: #93c5fd; }.line-3 { animation: cineText 6s 3s both; color: #f0abfc; }.line-4 { animation: cineText 6s 4.5s both; color: #86efac; }
 .editor-layout { display: grid; grid-template-columns: 190px 1fr; gap: 20px; margin-bottom: 22px; padding: 18px; border-radius: 24px; background: linear-gradient(135deg,#141126,#1d1534); color: #f5f3ff; box-shadow: 0 24px 70px rgba(53,27,105,.22); }
 .editor-sidebar { display: flex; flex-direction: column; }.editor-brand { display:flex; gap:10px; align-items:center; margin-bottom: 28px; }.editor-brand > span { display:grid; place-items:center; width:34px; height:34px; border-radius:11px; background:linear-gradient(135deg,#c084fc,#7c3aed); box-shadow:0 0 20px #7c3aed; }.editor-brand strong,.editor-brand small { display:block; }.editor-brand small { color:#aaa3c9; font-size:10px; margin-top:3px; }.editor-tabs { display:flex; flex-direction:column; gap:6px; }.editor-tab { border:0; background:transparent; color:#aaa3c9; text-align:left; padding:12px 10px; border-radius:12px; font:inherit; cursor:pointer; display:flex; gap:10px; align-items:center; }.editor-tab.active { color:#fff; background:rgba(167,139,250,.18); box-shadow:inset 3px 0 #c084fc; }.editor-panel { min-width:0; background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.1); border-radius:18px; padding:22px; }.editor-panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:20px; }.editor-panel h2 { color:#fff; margin:5px 0 0; }.eyebrow { color:#c084fc; font-size:10px; font-weight:700; letter-spacing:.16em; }.editor-status { color:#86efac; font-size:11px; }.control-grid { display:grid; gap:16px; }.editor-panel .label { color:#dcd6f2; }.editor-panel .input,.editor-panel .color { background:rgba(8,6,20,.45); border-color:#493c6b; color:#fff; }.editor-panel .hint { color:#b9b1d0; }.color-grid { display:flex; gap:24px; }.theme-row { display:flex; gap:8px; flex-wrap:wrap; }.theme { border:1px solid #5b4a83; color:#fff; border-radius:10px; padding:10px 14px; cursor:pointer; background:#26203d; }.theme-aurora { background:linear-gradient(135deg,#16122e,#6d28d9); }.theme-sunset { background:linear-gradient(135deg,#7c2d12,#fb923c); }.theme-forest { background:linear-gradient(135deg,#14532d,#65a30d); }.sticker-palette { display:flex; flex-wrap:wrap; gap:8px; }.sticker-btn { border:1px solid #58477c; background:#211a3a; border-radius:12px; font-size:24px; width:46px; height:46px; cursor:pointer; transition:transform .15s; }.sticker-btn:hover { transform:translateY(-3px) rotate(-4deg); }.sticker-list { display:flex; gap:8px; flex-wrap:wrap; }.sticker-chip { border:1px solid #66538d; background:#2a2147; color:#fff; border-radius:99px; padding:6px 10px; cursor:pointer; }.sticker-chip small { color:#b8add4; }.planning-warnings { margin: 0 0 14px; padding: 8px 12px; border-left: 3px solid #dc2626; background: #fff1f2; color: #b91c1c; font-size: 12px; line-height: 1.45; }.planning-warnings p { margin: 0; }.planning-warnings p + p { margin-top: 4px; }
-.editor-warning { color:#ff7b87 !important; border-left:2px solid #ef4444; padding-left:10px; }.floating-sticker { position:absolute; z-index:12; pointer-events:auto; cursor:move; user-select:none; font-size:28px; filter:drop-shadow(0 4px 8px rgba(0,0,0,.18)); transform:rotate(-8deg); }.floating-sticker.selected { outline:2px dashed #c084fc; outline-offset:4px; }.sticker-resize { position:absolute; right:-7px; bottom:-7px; width:12px; height:12px; border-radius:3px; background:#c084fc; cursor:nwse-resize; }.sticker-delete { position:absolute; top:-12px; right:-12px; border:0; border-radius:50%; width:20px; height:20px; background:#dc2626; color:white; cursor:pointer; line-height:18px; }.event-reveal { animation: eventReveal .55s cubic-bezier(.2,.8,.2,1) both; }
+.editor-warning { color:#ff7b87 !important; border-left:2px solid #ef4444; padding-left:10px; }.floating-sticker { position:absolute; z-index:12; pointer-events:auto; user-select:none; font-size:28px; filter:drop-shadow(0 4px 8px rgba(0,0,0,.18)); transform:rotate(-8deg); }.sticker-delete { position:absolute; top:-12px; right:-12px; border:0; border-radius:50%; width:20px; height:20px; background:#dc2626; color:white; cursor:pointer; line-height:18px; }.event-reveal { animation: eventReveal .55s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes spin { to { transform:rotate(360deg); } } @keyframes orbitPulse { 50% { transform:scale(1.05); box-shadow:0 0 55px #a78bfa, inset 0 0 36px rgba(139,92,246,.7); } } @keyframes coreGlow { to { transform:scale(1.14) rotate(8deg); } } @keyframes fillCine { to { width:100%; } } @keyframes cineText { 0%,18% { opacity:0; transform:translateY(10px); } 24%,44% { opacity:1; transform:translateY(0); } 52%,100% { opacity:0; transform:translateY(-10px); } } @keyframes eventReveal { from { opacity:0; transform:scale(.84) translateY(8px); } to { opacity:1; transform:scale(1) translateY(0); } }
-/* Les thèmes sont volontairement limités au planning (aperçu/impression inclus). */.theme-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;margin:6px 0 12px}.theme-option{display:flex;flex-direction:column;gap:5px;min-width:0;padding:7px 8px;border:1px solid var(--border);border-radius:10px;background:var(--panel);color:var(--ink);cursor:pointer;font:inherit;font-size:12px;text-align:left}.theme-option.on{outline:2px solid var(--button)}.swatches{display:flex;gap:3px}.swatches i{width:13px;height:13px;border-radius:50%;border:1px solid #0003}
+/* Les thèmes sont volontairement limités au planning (aperçu/impression inclus). */.theme-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:6px;margin:6px 0 12px;min-width:0;overflow:hidden;box-sizing:border-box}.theme-option{display:flex;flex-direction:column;gap:3px;min-width:0;min-height:0;padding:6px;box-sizing:border-box;overflow:hidden;border:1px solid var(--border);border-radius:10px;background:var(--panel);color:var(--ink);cursor:pointer;font:inherit;font-size:12px;text-align:left}.theme-option.on{outline:2px solid var(--button)}.swatches{display:flex;gap:3px;min-width:0;overflow:hidden}.swatches i{flex:0 0 13px;width:13px;height:13px;border-radius:50%;border:1px solid #0003}
 @media (max-width: 680px) { .editor-layout { display:block; padding:12px; }.editor-sidebar { display:block; }.editor-brand { margin:4px 4px 12px; }.editor-tabs { flex-direction:row; gap:4px; }.editor-tab { flex:1; justify-content:center; padding:10px 4px; font-size:12px; }.editor-tab span { display:none; }.editor-panel { margin-top:10px; padding:16px; }.editor-panel-head { margin-bottom:14px; }.color-grid { gap:14px; }.app { padding:26px 12px 54px; } }
 /* Mode éditeur : atelier + aperçu côte à côte, sans surface blanche. */
 html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff; }
@@ -1467,8 +1402,6 @@ html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff;
 /* Atelier : cadre fixe et interactions de dessin au-dessus du planning. */
 .week-frame { position:relative; border:2px solid rgba(167,139,250,.55); border-radius:18px; padding:14px; margin-top:16px; background:rgba(10,7,24,.18); overflow:hidden; }
 .week-frame .week { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:0; }
-.week-frame .day { min-width:0; min-height:145px; cursor:grab; user-select:none; touch-action:none; }
-.week-frame .day:active { cursor:grabbing; }
 .paint-canvas { user-select:none; -webkit-user-select:none; touch-action:none; }
 @media (max-width:680px) { .week-frame .week { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 `;
