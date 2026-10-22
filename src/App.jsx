@@ -249,7 +249,7 @@ export default function App() {
   const [editorTab, setEditorTab] = useState("colors");
   const [error, setError] = useState("");
   const [result, setResult] = useState(saved?.result ?? null);
-  const [style, setStyle] = useState({ ...defaultStyle });
+  const [style, setStyle] = useState({ ...defaultStyle, ...(saved?.style || {}) });
   const [themeId, setThemeId] = useState(saved?.themeId ?? "base");
   const theme = THEMES.find((t) => t.id === themeId)?.vars || {page:"#f7f7f5",panel:"#fff",planning:"#fff",cell:"#f2f8f4",cellAlt:"#eff6ff",header:"#f1f5f9",border:"#e5e7eb",text:"#151515",muted:"#6b6b6b",button:"#14532d",person1:COLORS[0].border,person2:COLORS[1].border,together:"#7c3aed",sessionText:"#151515"};
   const [paintTool, setPaintTool] = useState("pen");
@@ -354,12 +354,12 @@ export default function App() {
     try {
       localStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ couple, people, step, result, themeId })
+        JSON.stringify({ couple, people, step, result, themeId, style })
       );
     } catch (e) {
       // quota dépassé (images trop lourdes) : on ignore sans casser l'app
     }
-  }, [couple, people, step, result, themeId, theme.page, theme.text]);
+  }, [couple, people, step, result, themeId, style, theme.page, theme.text]);
 
   const update = (patch) =>
     setPeople((prev) => prev.map((p, i) => (i === active ? { ...p, ...patch } : p)));
@@ -1107,7 +1107,7 @@ export default function App() {
             <section className="editor-panel">
               <div className="editor-panel-head"><div><span className="eyebrow">PERSONNALISATION</span><h2>{editorTab === "colors" ? "Donne-lui ta couleur" : editorTab === "stickers" ? "Ajoute ton énergie" : "Ajuste tes séances"}</h2></div><span className="editor-status">● Sauvegardé</span></div>
               {editorTab === "colors" && <div className="control-grid">
-                <label className="label">Titre du planning<input className="input full" value={style.title} onChange={(e) => setStyleKey({ title: e.target.value })} /></label><label className="label">Thème</label><div className="theme-grid"><button className={`theme-option ${themeId === "base" ? "on" : ""}`} onClick={() => setThemeId("base")}>Base <span className="swatches"><i style={{background:"#fff"}}/><i style={{background:"#14532d"}}/><i style={{background:"#f2f8f4"}}/></span></button>{THEMES.map(t=><button key={t.id} className={`theme-option ${themeId===t.id?"on":""}`} onClick={()=>setThemeId(t.id)}>{t.name}<span className="swatches">{[t.vars.cell,t.vars.cellAlt,t.vars.header,t.vars.button].map(c=><i key={c} style={{background:c}}/>)}</span></button>)}</div>
+                <label className="label">Titre du planning<input className="input full" value={style.title} onChange={(e) => setStyleKey({ title: e.target.value })} /></label><label className="label">Thème</label><div className="theme-grid"><button className={`theme-option ${themeId === "base" ? "on" : ""}`} onClick={() => setThemeId("base")}>Personnalisation <span className="swatches"><i style={{background:"#fff"}}/><i style={{background:"#14532d"}}/><i style={{background:"#f2f8f4"}}/></span></button>{THEMES.map(t=><button key={t.id} className={`theme-option ${themeId===t.id?"on":""}`} onClick={()=>setThemeId(t.id)}>{t.name}<span className="swatches">{[t.vars.cell,t.vars.cellAlt,t.vars.header,t.vars.button].map(c=><i key={c} style={{background:c}}/>)}</span></button>)}</div>
                 <div className="color-grid"><label className="field">Fond<input type="color" className="color" value={style.bgColor} onChange={(e) => setStyleKey({ bgColor: e.target.value })} /></label><label className="field">Accent<input type="color" className="color" value={style.accent} onChange={(e) => setStyleKey({ accent: e.target.value })} /></label><label className="field">Texte<input type="color" className="color" value={style.textColor || "#151515"} onChange={(e) => setStyleKey({ textColor: e.target.value })} /></label></div>
                 <label className="label">Arrière-plan <input type="file" accept="image/*" onChange={onBgImage} /></label>{style.bgImage && <><button className="link" onClick={() => setStyleKey({ bgImage: "" })}>Retirer l'image</button><label className="field slider">Transparence : {Math.round(style.bgOpacity * 100)} %<input type="range" min="0" max="1" step="0.05" value={style.bgOpacity} onChange={(e) => setStyleKey({ bgOpacity: Number(e.target.value) })} /></label></>}
               </div>}
@@ -1457,9 +1457,9 @@ html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff;
 
 /* Atelier : cadre fixe et interactions de dessin au-dessus du planning. */
 .week-frame { position:relative; border:2px solid rgba(167,139,250,.55); border-radius:18px; padding:14px; margin-top:16px; background:rgba(10,7,24,.18); overflow:hidden; }
-.week-frame .week { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:0; }
+.week-frame .week { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:10px; margin-top:0; min-width:0; }
 .paint-canvas { user-select:none; -webkit-user-select:none; touch-action:none; }
-@media (max-width:680px) { .week-frame .week { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media screen and (max-width:680px) { .week-frame { overflow-x:auto; } .week-frame .week { grid-template-columns:repeat(7,minmax(92px,1fr)); min-width:700px; } }
 
 /* Impression finale : feuille unique A4 paysage, grille complète et sans débordement. */
 .print-paint-overlay { position:absolute; inset:0; width:100%; height:100%; object-fit:fill; z-index:2; pointer-events:none; opacity:1; }
