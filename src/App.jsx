@@ -1,5 +1,5 @@
 // src/App.jsx
-import { useState, useEffect, useRef } from "react";
+import { Fragment, useState, useEffect, useRef } from "react";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
@@ -42,15 +42,6 @@ const THEMES = [
 ];
 
 const STORAGE_KEY = "ruvy-planner-v2";
-
-function readableText(background) {
-  const hex = String(background || "#ffffff").replace("#", "");
-  const rgb = hex.length === 3 ? hex.split("").map((x) => parseInt(x + x, 16)) : [0, 1, 2].map((i) => parseInt(hex.slice(i * 2, i * 2 + 2), 16));
-  const [r, g, b] = rgb.map((n) => Number.isFinite(n) ? n : 255);
-  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return lum < 0.58 ? "#ffffff" : "#17251f";
-}
-
 const MAX_SHIFT_MIN = 30;
 
 const INTENSE_RE = /hiit|fractionn|sprint|crossfit|combat|boxe|mma|muscu|renforcement|force|course|running|vélo|velo|rameur/i;
@@ -249,7 +240,7 @@ export default function App() {
   const [editorTab, setEditorTab] = useState("colors");
   const [error, setError] = useState("");
   const [result, setResult] = useState(saved?.result ?? null);
-  const [style, setStyle] = useState({ ...defaultStyle, ...(saved?.style || {}) });
+  const [style, setStyle] = useState({ ...defaultStyle });
   const [themeId, setThemeId] = useState(saved?.themeId ?? "base");
   const theme = THEMES.find((t) => t.id === themeId)?.vars || {page:"#f7f7f5",panel:"#fff",planning:"#fff",cell:"#f2f8f4",cellAlt:"#eff6ff",header:"#f1f5f9",border:"#e5e7eb",text:"#151515",muted:"#6b6b6b",button:"#14532d",person1:COLORS[0].border,person2:COLORS[1].border,together:"#7c3aed",sessionText:"#151515"};
   const [paintTool, setPaintTool] = useState("pen");
@@ -258,7 +249,11 @@ export default function App() {
   const [paintBackground, setPaintBackground] = useState("#18132c");
   const [paintHistory, setPaintHistory] = useState([]);
   const [paintFuture, setPaintFuture] = useState([]);
-  const [paintSnapshot, setPaintSnapshot] = useState("");
+  const [draggingEvent, setDraggingEvent] = useState(null);
+  const [selectedSticker, setSelectedSticker] = useState(null);
+  const stickerDragRef = useRef(null);
+  const [atelierDayOrder, setAtelierDayOrder] = useState(DAYS);
+  const atelierDayDragRef = useRef(null);
   const paintCanvasRef = useRef(null);
   const paintDrawingRef = useRef(false);
   const [exporting, setExporting] = useState(false);
@@ -300,9 +295,7 @@ export default function App() {
     sheet.style.transform = `scale(${scale})`;
     sheet.style.width = `${100 / scale}%`;
     root.style.width = `${pageW}px`;
-    // Réserver exactement la hauteur utile A4 : le navigateur ne crée pas de page
-    // supplémentaire même si le contenu est plus court que la feuille.
-    root.style.height = `${pageH}px`;
+    root.style.height = `${Math.ceil(contentH * scale)}px`;
     root.dataset.printScale = String(scale);
     root.dataset.printPrevious = JSON.stringify(previous);
   };
@@ -341,10 +334,6 @@ export default function App() {
   const progress = Math.round((Math.min(step, 2) / 2) * 100);
 
   useEffect(() => {
-    if (step === 4) setPaintTool("move");
-  }, [step]);
-
-  useEffect(() => {
     document.documentElement.classList.toggle("editor-active", step === 4);
     return () => document.documentElement.classList.remove("editor-active");
   }, [step]);
@@ -354,12 +343,12 @@ export default function App() {
     try {
       localStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ couple, people, step, result, themeId, style })
+        JSON.stringify({ couple, people, step, result, themeId })
       );
     } catch (e) {
       // quota dépassé (images trop lourdes) : on ignore sans casser l'app
     }
-  }, [couple, people, step, result, themeId, style, theme.page, theme.text]);
+  }, [couple, people, step, result, themeId, theme.page, theme.text]);
 
   const update = (patch) =>
     setPeople((prev) => prev.map((p, i) => (i === active ? { ...p, ...patch } : p)));
@@ -517,16 +506,29 @@ export default function App() {
       updateEvent(planIdx, evIdx, { origStart: ev.start, origEnd: ev.end, origDay: ev.day });
     }
     setEditing({ plan: planIdx, index: evIdx });
-    setEditorTab("edit");
   };
 
   // ----- Personnalisation -----
   const setStyleKey = (patch) => setStyle((prev) => ({ ...prev, ...patch }));
 
-  const selectEditorTab = (tab) => { setEditorTab(tab); };
-  const selectPaintTool = (tool) => { setPaintTool(tool); };
+  const selectEditorTab = (tab) => { setEditorTab(tab); setPaintTool("move"); setSelectedSticker(null); };
+  const selectPaintTool = (tool) => { setPaintTool(tool); setSelectedSticker(null); };
   const addSticker = (sticker) => setStyleKey({ stickers: [...(style.stickers || []), { emoji: sticker, x: 18 + ((style.stickers || []).length * 17) % 70, y: 16 + ((style.stickers || []).length * 23) % 65, size: 28, rotation: -8 }] });
   const updateSticker = (index, patch) => setStyleKey({ stickers: (style.stickers || []).map((s, i) => i === index ? { ...s, ...patch } : s) });
+  const startStickerDrag = (e, index, resize = false) => {
+    e.stopPropagation(); e.preventDefault();
+    const frame = e.currentTarget.closest(".export-zone"); if (!frame) return;
+    const rect = frame.getBoundingClientRect(); const sticker = style.stickers[index];
+    stickerDragRef.current = { index, resize, rect, startX: e.clientX, startY: e.clientY, startSize: sticker.size || 28, startXPos: sticker.x, startYPos: sticker.y };
+    setSelectedSticker(index); e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+  const moveSticker = (e) => {
+    const drag = stickerDragRef.current; if (!drag) return;
+    const dx = e.clientX - drag.startX, dy = e.clientY - drag.startY;
+    if (drag.resize) updateSticker(drag.index, { size: Math.max(16, Math.min(140, drag.startSize + (dx + dy) / 2)) });
+    else updateSticker(drag.index, { x: Math.max(0, Math.min(96, drag.startXPos + dx / drag.rect.width * 100)), y: Math.max(0, Math.min(96, drag.startYPos + dy / drag.rect.height * 100)) });
+  };
+  const endStickerDrag = () => { stickerDragRef.current = null; };
   const removeSticker = (index) => setStyleKey({ stickers: (style.stickers || []).filter((_, i) => i !== index) });
 
   const onBgImage = async (e) => {
@@ -645,13 +647,56 @@ export default function App() {
     }
     beginPaint(e);
   };
-  const endPaint = () => {
-    paintDrawingRef.current = false;
-    const snapshot = snapshotCanvas();
-    if (snapshot) setPaintSnapshot(snapshot);
+  const endPaint = () => { paintDrawingRef.current = false; };
+  const undoPaint = () => { const last = paintHistory.at(-1); if (!last) return; setPaintFuture(f => [...f, snapshotCanvas()]); setPaintHistory(h => h.slice(0,-1)); const c=paintCanvasRef.current; if(c){c.getContext("2d").clearRect(0,0,c.width,c.height); restoreCanvas(last);} };
+  const redoPaint = () => { const next = paintFuture.at(-1); if (!next) return; setPaintHistory(h => [...h, snapshotCanvas()]); setPaintFuture(f => f.slice(0,-1)); const c=paintCanvasRef.current; if(c){c.getContext("2d").clearRect(0,0,c.width,c.height); restoreCanvas(next);} };
+  const eventDragRef = useRef(null);
+  const suppressEventClickRef = useRef(false);
+  const beginEventDrag = (e, day) => {
+    if (paintTool !== "move" || e.button === 2) return;
+    const planIndex = Number(e.currentTarget.dataset.plan), eventIndex = Number(e.currentTarget.dataset.event);
+    if (eventIndex < 0 || result?.plans?.[planIndex]?.events?.[eventIndex]?.fixed) return;
+    eventDragRef.current = { planIndex, eventIndex, day, startX: e.clientX, startY: e.clientY, moved: false };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
   };
-  const undoPaint = () => { const last = paintHistory.at(-1); if (!last) return; setPaintFuture(f => [...f, snapshotCanvas()]); setPaintHistory(h => h.slice(0,-1)); const c=paintCanvasRef.current; if(c){c.getContext("2d").clearRect(0,0,c.width,c.height); restoreCanvas(last); setPaintSnapshot(last);} };
-  const redoPaint = () => { const next = paintFuture.at(-1); if (!next) return; setPaintHistory(h => [...h, snapshotCanvas()]); setPaintFuture(f => f.slice(0,-1)); const c=paintCanvasRef.current; if(c){c.getContext("2d").clearRect(0,0,c.width,c.height); restoreCanvas(next); setPaintSnapshot(next);} };
+  const moveEvent = (e) => {
+    const drag = eventDragRef.current;
+    if (!drag || paintTool !== "move") return;
+    const dx = e.clientX - drag.startX, dy = e.clientY - drag.startY;
+    if (!drag.moved && Math.hypot(dx, dy) < 5) return;
+    drag.moved = true;
+    setDraggingEvent({ planIndex: drag.planIndex, eventIndex: drag.eventIndex });
+  };
+  const finishMove = (e) => {
+    const drag = eventDragRef.current;
+    eventDragRef.current = null;
+    setDraggingEvent(null);
+    if (!drag?.moved || !result) return;
+    const source = result.plans[drag.planIndex]?.events?.[drag.eventIndex];
+    const hit = document.elementFromPoint(e.clientX, e.clientY)?.closest?.(".day");
+    const targetDay = hit?.dataset?.day || drag.day;
+    if (!source || !DAYS.includes(targetDay)) return;
+    const dayRect = hit?.getBoundingClientRect();
+    const duration = Math.max(1, toMin(source.end) - toMin(source.start));
+    const ratio = dayRect ? Math.max(0, Math.min(1, (e.clientY - dayRect.top) / dayRect.height)) : toMin(source.start) / 1440;
+    const startMin = Math.max(0, Math.min(1440 - duration, Math.round(ratio * 1440)));
+    const pad = (n) => String(Math.floor(n / 60)).padStart(2, "0") + ":" + String(n % 60).padStart(2, "0");
+    const targetEl = document.elementFromPoint(e.clientX, e.clientY)?.closest?.(".event");
+    const hitPlan = targetEl ? Number(targetEl.dataset.plan) : drag.planIndex;
+    const hitIndex = targetEl ? Number(targetEl.dataset.event) : -1;
+    const target = hitIndex >= 0 ? result.plans[hitPlan]?.events?.[hitIndex] : result.plans[drag.planIndex].events.find((ev, i) => i !== drag.eventIndex && !ev.fixed && ev.day === targetDay && startMin >= toMin(ev.start) && startMin < toMin(ev.end));
+    if (target && !target.fixed) {
+      const targetPlan = hitIndex >= 0 ? hitPlan : drag.planIndex;
+      const targetIndex = hitIndex >= 0 ? hitIndex : result.plans[drag.planIndex].events.indexOf(target);
+      updateEvent(drag.planIndex, drag.eventIndex, { day: target.day, start: target.start, end: target.end });
+      updateEvent(targetPlan, targetIndex, { day: source.day, start: source.start, end: source.end });
+    } else {
+      updateEvent(drag.planIndex, drag.eventIndex, { day: targetDay, start: pad(startMin), end: pad(startMin + duration) });
+    }
+    suppressEventClickRef.current = true;
+    window.setTimeout(() => { suppressEventClickRef.current = false; }, 80);
+  };
+
   const groups = groupFixed(person.fixed);
 
   // ----- Construction de la semaine (réutilisée pour l'affichage) -----
@@ -670,107 +715,88 @@ export default function App() {
       });
     });
 
-    // Identical sessions occupy one block in every representation, including sessions belonging to different people.
-    // This also keeps the preview, print and export representations consistent.
-    const mergedByKey = new Map();
-    items.forEach((event) => {
-      const key = `${String(event.title || "").trim().toLowerCase()}|${event.start}|${event.end}`;
-      const existing = mergedByKey.get(key);
-      if (!existing) mergedByKey.set(key, { ...event, _owners: [event.owner] });
-      else {
-        // Keep a user-editable event as the representative when a fixed/legacy
-        // duplicate has the same label and time; otherwise the card cannot be edited.
-        if (existing.fixed && !event.fixed) {
-          const owners = [...new Set([...existing._owners, event.owner])];
-          mergedByKey.set(key, { ...event, _owners: owners, together: couple && owners.length > 1, ownerName: couple && owners.length > 1 ? "Ensemble" : event.ownerName });
-        } else {
-          existing._owners = [...new Set([...existing._owners, event.owner])];
-          existing.together = couple && existing._owners.length > 1;
-          existing.ownerName = existing.together ? "Ensemble" : existing.ownerName;
-        }
-      }
-    });
-    return [...mergedByKey.values()].sort((x, y) => x.start.localeCompare(y.start));
-  };
+    if (!mergeCouples) return items.sort((x, y) => x.start.localeCompare(y.start));
 
-  const layoutEvents = (events) => {
-    const lanes = [];
-    return [...events].sort((a, b) => toMin(a.start) - toMin(b.start) || toMin(a.end) - toMin(b.end)).map((event) => {
-      let lane = lanes.findIndex((end) => end <= toMin(event.start));
-      if (lane < 0) { lane = lanes.length; lanes.push(0); }
-      lanes[lane] = toMin(event.end);
-      return { event, lane, laneCount: lanes.length };
-    }).map((item) => ({ ...item, laneCount: Math.max(lanes.length, 1) }));
+    const merged = [];
+    const used = new Set();
+    items.forEach((a, ai) => {
+      if (used.has(ai)) return;
+      const bi = couple
+        ? items.findIndex(
+            (b, j) =>
+              j > ai &&
+              !used.has(j) &&
+              b.owner !== a.owner &&
+              b.title.toLowerCase() === a.title.toLowerCase() &&
+              b.start === a.start &&
+              b.end === a.end
+          )
+        : -1;
+      if (bi >= 0) {
+        used.add(bi);
+        merged.push({ ...a, together: true });
+      } else {
+        merged.push(a);
+      }
+      used.add(ai);
+    });
+    merged.sort((x, y) => x.start.localeCompare(y.start));
+    return merged;
   };
 
   const renderPrintGrid = ({ id, preview = false } = {}) => {
     if (!result) return null;
+    // L'impression suit toujours les séances réellement présentes (y compris fixes,
+    // travail et déplacements manuels), sans reprendre les bornes du questionnaire.
     const printDays = DAYS.map((day) => buildDay(day, false));
     const printEvents = printDays.flat();
     const firstEventMinute = printEvents.length ? Math.min(...printEvents.map((e) => toMin(e.start))) : 6 * 60;
     const lastEventMinute = printEvents.length ? Math.max(...printEvents.map((e) => toMin(e.end))) : 22 * 60;
     const start = Math.max(0, Math.floor(firstEventMinute / 60));
-    const end = Math.min(23, Math.ceil(lastEventMinute / 60) - 1);
+    const end = Math.min(23, Math.floor(lastEventMinute / 60));
     const hours = Array.from({ length: Math.max(1, end - start + 1) }, (_, i) => start + i);
-    const eventsAt = (day) => buildDay(day, false);
-    // Une ligne par heure, sans supprimer les heures vides : les repères et les blocs
-    // restent ainsi sur une échelle temporelle réelle (px/heure).
-    const displayHours = hours.length ? hours : [start];
-    const timeline = displayHours.map((hour) => ({ type: "hour", hour }));
-    const rowHeight = 30;
-    const rowTop = (hour) => Math.max(0, hour - start) * rowHeight;
     const eventColor = (event) => {
-      const bg = event?.together ? theme.together : event?.color || (event?.owner === 1 ? theme.person2 : theme.person1);
-      return { bg, border: theme.border, text: readableText(bg) };
+      if (event?.together) return { bg: theme.together, border: theme.together, text: theme.sessionText };
+      const personColor = event?.owner === 1 ? theme.person2 : theme.person1;
+      return { bg: personColor, border: theme.border, text: theme.sessionText };
     };
-    const eventStyle = (event, lane = 0, laneCount = 1) => {
-      const startHour = Math.floor(toMin(event.start) / 60);
-      const duration = Math.max(30, toMin(event.end) - toMin(event.start));
-      const c = eventColor(event);
-      return { ...c, top: rowTop(startHour) + (toMin(event.start) % 60) / 60 * rowHeight, height: Math.max(22, duration / 60 * rowHeight - 4), left: `calc(${lane * 100 / laneCount}% + 3px)`, width: `calc(${100 / laneCount}% - 6px)` };
-    };
-    const totalHeight = Math.max(rowHeight, timeline.length * rowHeight);
+    const eventsAt = (day, hour) => buildDay(day, false).filter((e) => Number(String(e.start || "").split(":")[0]) === hour);
+    // N'afficher que les heures qui contiennent au moins une séance sur la semaine.
+    // Pendant un déplacement, on garde toutes les heures de la plage pour permettre
+    // de déposer une séance dans une ligne qui était vide avant le drag.
+    const visibleHours = draggingEvent
+      ? hours
+      : hours.filter((hour) => DAYS.some((day) => eventsAt(day, hour).length > 0));
+    const displayHours = visibleHours.length ? visibleHours : [start];
     return <div id={id} className={`print-grid-wrap${preview ? " print-grid-preview" : ""}`} aria-label="Grille imprimable du planning">
       <div className="print-sheet" style={{ background: (themeId === "base" ? style.bgColor : theme.planning), color: (themeId === "base" ? (style.textColor || "#151515") : theme.text), "--print-bg": (themeId === "base" ? style.bgColor : theme.planning), "--print-text": (themeId === "base" ? (style.textColor || "#151515") : theme.text), "--print-border": theme.border, "--print-header": theme.header, "--print-accent": (themeId === "base" ? (style.accent || "#14532d") : theme.button) }}>
         {style.bgImage && <div className="print-bg-image" style={{ backgroundImage: `url(${style.bgImage})`, opacity: style.bgOpacity }} />}
-        {paintSnapshot && <img className="print-paint-overlay" src={paintSnapshot} alt="Dessin de l’atelier" />}
         {(style.stickers || []).map((sticker, i) => <span key={i} className="print-sticker" style={{ left: `${sticker.x}%`, top: `${sticker.y}%`, fontSize: `${sticker.size || 28}px`, transform: `rotate(${sticker.rotation || 0}deg)` }}>{sticker.emoji}</span>)}
         <h2 className="print-title">{style.title || "Mon planning"}</h2>
         <table className="print-grid"><thead><tr><th style={themeId === "base" ? { background: "#f97316", color: "#fff" } : undefined}>Heure</th>{DAYS.map((d) => <th key={d} style={themeId === "base" ? { background: "#f97316", color: "#fff" } : undefined}>{d}</th>)}</tr></thead>
-          <tbody><tr className="agenda-row"><th className="agenda-hours" style={{ height: totalHeight }}>{timeline.map((row) => row.type === "gap" ? <span key={row.key} className="agenda-gap-label">···</span> : <span key={row.hour}>{row.hour}h</span>)}</th>{DAYS.map((day) => {
+          <tbody>{displayHours.map((hour) => <tr key={hour}><th>{hour}h</th>{DAYS.map((day) => {
+            const events = eventsAt(day, hour);
             const dayImg = style.dayImages?.[day];
-            return <td key={day} className="agenda-column" style={{ height: totalHeight }}>{dayImg && <span className="print-day-image" style={{ backgroundImage: `url(${dayImg})`, opacity: style.dayImageOpacity }} />}<span className="agenda-track" style={{ height: totalHeight }}>{layoutEvents(eventsAt(day)).map(({ event: e, lane, laneCount }, i) => { const c = eventStyle(e, lane, laneCount); return <span key={i} className="print-event agenda-event" onClick={e.evIndex >= 0 && paintTool === "move" ? () => startEdit(e.owner, e.evIndex) : undefined} style={{ top: c.top, height: c.height, left: c.left, width: c.width, background: c.bg, borderLeftColor: c.border, color: c.text, cursor: e.evIndex >= 0 ? "pointer" : "default" }}><strong>{e.title}</strong><span>{e.start} – {e.end}</span>{e.note && <span className="event-note">{e.note}</span>}{couple && <small>{e.together ? "Ensemble" : e.ownerName}</small>}</span>; })}{eventsAt(day).length === 0 && <span className="print-rest">–</span>}</span></td>;
-          })}</tr></tbody></table>
+            return <td key={day} style={{ position: "relative", overflow: "hidden" }}>
+              {dayImg && <span className="print-day-image" style={{ backgroundImage: `url(${dayImg})`, opacity: style.dayImageOpacity }} />}
+              <span className="print-cell-content">{events.length ? events.map((e, i) => { const c = eventColor(e); return <span key={i} className="print-event" style={{ background: c.bg, borderLeftColor: c.border, color: c.text }}><strong>{e.title}</strong><span>{e.start} – {e.end}</span>{couple && <small>{e.together ? "Ensemble" : e.ownerName}</small>}</span>; }) : <span className="print-rest">Repos</span>}</span>
+            </td>;
+          })}</tr>)}</tbody></table>
       </div>
     </div>;
   };
-
   const renderWeek = (interactive) => {
-    // Une seule échelle temporelle pour les sept jours : les repères horaires
-    // restent donc alignés avec les blocs, y compris lorsqu'un jour est vide.
-    const weekEvents = DAYS.flatMap((day) => buildDay(day));
-    const weekMinutes = weekEvents.flatMap((e) => [toMin(e.start), toMin(e.end)]);
-    const firstHour = weekMinutes.length ? Math.floor(Math.min(...weekMinutes) / 60) : 0;
-    const lastHour = weekMinutes.length ? Math.max(firstHour, Math.ceil(Math.max(...weekMinutes) / 60) - 1) : firstHour;
-    const hours = Array.from({ length: Math.max(1, lastHour - firstHour + 1) }, (_, i) => firstHour + i);
-    const rowHeight = 34;
-    return (
-    <div className="week-frame" aria-label="Cadre du planning à sept jours">
-      <div className="week">
-        {DAYS.map((d) => {
-          const events = buildDay(d);
-          const dayImg = style.dayImages[d];
-          const eventColor = (e) => { const bg = e.together ? theme.together : e.color || (e.owner === 1 ? theme.person2 : theme.person1); return { bg, text: readableText(bg), border: theme.border }; };
-          return <div key={d} data-day={d} className="day" style={{ position: "relative", overflow: "hidden", backgroundColor: themeId === "base" ? style.bgColor : (DAYS.indexOf(d) % 2 ? theme.cellAlt : theme.cell), borderColor: theme.border, color: themeId === "base" ? (style.textColor || "#151515") : theme.text }}>
-            {dayImg && <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${dayImg})`, backgroundSize: "cover", backgroundPosition: "center", opacity: style.dayImageOpacity, pointerEvents: "none" }} />}
-            <div style={{ position: "relative" }}><h3 style={{ color: themeId === "base" ? "#fff" : theme.text, background: themeId === "base" ? "#f97316" : theme.header, borderColor: theme.border }}>{d}</h3>
-              {!events.length && <div className="rest">–</div>}
-              {events.length > 0 && <div className="mini-agenda"><div className="mini-hours" style={{ height: `${hours.length * rowHeight}px` }}>{hours.map((h) => <span key={h}>{h}h</span>)}</div><div className="mini-track" style={{ height: `${hours.length * rowHeight}px` }}><div className="mini-track-inner card-event-stack" style={{ height: `${hours.length * rowHeight}px` }}>{layoutEvents(events).map(({ event: e, lane, laneCount }, i) => { const c = eventColor(e); const top = (toMin(e.start) - firstHour * 60) / 60 * rowHeight, height = Math.max(24, (toMin(e.end) - toMin(e.start)) / 60 * rowHeight - 4); const canEdit = e.evIndex >= 0; const warns = canEdit ? warningsFor(e.owner, e.evIndex) : []; return <div key={i} className={(canEdit ? "event editable" : "event") + " event-reveal mini-event"} data-plan={e.owner} data-event={e.evIndex} onClick={canEdit && paintTool === "move" ? () => startEdit(e.owner, e.evIndex) : undefined} style={{ top, height, left: `${lane * 100 / laneCount}%`, width: `${100 / laneCount}%`, background: c.bg, color: c.text, borderLeft: `3px solid ${warns.length ? "#dc2626" : c.border}`, zIndex: i + 1 }}><strong>{e.title}</strong><span>{e.start} – {e.end}</span>{e.note && <span className="event-note">{e.note}</span>}{couple && <span className="owner">{e.together ? "Ensemble" : e.ownerName}</span>}</div>; })}</div></div></div>}
-            </div></div>;
-        })}
+    const timetableHours = Array.from({ length: 12 }, (_, i) => i + 9);
+    const rowFor = (minute) => Math.max(0, Math.min(720, minute - 9 * 60));
+    const hourRow = (minute) => Math.floor(rowFor(minute) / 60) + 2;
+    const eventColor = (e) => { const bg = e.together ? theme.together : e.color || (e.owner === 1 ? theme.person2 : theme.person1); return { bg, text: theme.sessionText, border: theme.border }; };
+    return <div className="week-frame timetable-frame" aria-label="Planning hebdomadaire en tableau">
+      <div className="timetable-grid" style={{ "--timetable-bg": themeId === "base" ? style.bgColor : theme.planning, "--timetable-line": theme.border, "--timetable-header": themeId === "base" ? (style.accent || "#14532d") : theme.header, "--timetable-muted": themeId === "base" ? (style.textColor || "#6b6b6b") : theme.muted }}>
+        <div className="timetable-corner">HEURE</div>{DAYS.map((day) => <div key={day} className="timetable-day-head">{day}</div>)}
+        {timetableHours.map((hour) => <Fragment key={hour}><div className={`timetable-hour ${hour === 13 ? "timetable-break" : ""}`}>{hour}H</div>{DAYS.map((day) => <div key={`${day}-${hour}`} className={`timetable-slot ${hour === 13 ? "timetable-break" : ""}`} />)}</Fragment>)}
+        {DAYS.map((day, dayIndex) => buildDay(day).map((e, eventIndex) => { const start=toMin(e.start), end=Math.max(start+5,toMin(e.end)), visibleStart=Math.max(start,540), visibleEnd=Math.min(end,1260); if(visibleEnd<=visibleStart)return null; const c=eventColor(e), canEdit=e.evIndex>=0, warns=canEdit?warningsFor(e.owner,e.evIndex):[]; return <div key={`${day}-${eventIndex}`} className={`timetable-event ${canEdit?"editable":""}`} data-plan={e.owner} data-event={e.evIndex} onClick={canEdit&&paintTool==="move"?()=>startEdit(e.owner,e.evIndex):undefined} style={{gridColumn:dayIndex+2,gridRow:`${hourRow(visibleStart)} / span ${Math.max(1,Math.ceil((visibleEnd-visibleStart)/60))}`,background:c.bg,color:c.text,borderColor:warns.length?"#dc2626":c.border,borderLeftWidth:warns.length?4:2}}><strong>{String(e.title||"Séance").toUpperCase()}</strong><span className="timetable-time">{e.start} – {e.end}</span>{e.note&&<span className="event-note">{e.note}</span>}{couple&&<span className="owner">{e.together?"Ensemble":e.ownerName}</span>}</div>; }))}
       </div>
-    </div>
-    );
+    </div>;
   };
 
   // ----- Panneau d'édition d'un événement -----
@@ -785,18 +811,6 @@ export default function App() {
         <div className="editor-head">
           <strong>Modifier : {ev.title}</strong>
           <button className="link" onClick={() => setEditing(null)}>Fermer</button>
-        </div>
-
-        <div className="row editor-session-fields">
-          <label className="field">Titre
-            <input className="input" value={ev.title || ""} onChange={(e) => updateEvent(editing.plan, editing.index, { title: e.target.value })} />
-          </label>
-          <label className="field">Note
-            <input className="input" value={ev.note || ""} onChange={(e) => updateEvent(editing.plan, editing.index, { note: e.target.value })} />
-          </label>
-          <label className="field">Couleur
-            <input type="color" className="color" value={ev.color || "#79e0bd"} onChange={(e) => updateEvent(editing.plan, editing.index, { color: e.target.value })} />
-          </label>
         </div>
 
         <div className="row">
@@ -823,16 +837,6 @@ export default function App() {
               className="input"
               value={ev.end}
               onChange={(e) => updateEvent(editing.plan, editing.index, { end: e.target.value })}
-            />
-          </label>
-          <label className="field">Durée (min)
-            <input
-              type="number"
-              min="5"
-              step="5"
-              className="input"
-              value={Math.max(5, toMin(ev.end) - toMin(ev.start))}
-              onChange={(e) => updateEvent(editing.plan, editing.index, { end: (() => { const total = toMin(ev.start) + Math.max(5, Number(e.target.value) || 5); return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`; })() })}
             />
           </label>
           <button className="btn ghost" onClick={() => deleteEvent(editing.plan, editing.index)}>
@@ -1107,13 +1111,13 @@ export default function App() {
             <section className="editor-panel">
               <div className="editor-panel-head"><div><span className="eyebrow">PERSONNALISATION</span><h2>{editorTab === "colors" ? "Donne-lui ta couleur" : editorTab === "stickers" ? "Ajoute ton énergie" : "Ajuste tes séances"}</h2></div><span className="editor-status">● Sauvegardé</span></div>
               {editorTab === "colors" && <div className="control-grid">
-                <label className="label">Titre du planning<input className="input full" value={style.title} onChange={(e) => setStyleKey({ title: e.target.value })} /></label><label className="label">Thème</label><div className="theme-grid"><button className={`theme-option ${themeId === "base" ? "on" : ""}`} onClick={() => setThemeId("base")}>Personnalisation <span className="swatches"><i style={{background:"#fff"}}/><i style={{background:"#14532d"}}/><i style={{background:"#f2f8f4"}}/></span></button>{THEMES.map(t=><button key={t.id} className={`theme-option ${themeId===t.id?"on":""}`} onClick={()=>setThemeId(t.id)}>{t.name}<span className="swatches">{[t.vars.cell,t.vars.cellAlt,t.vars.header,t.vars.button].map(c=><i key={c} style={{background:c}}/>)}</span></button>)}</div>
+                <label className="label">Titre du planning<input className="input full" value={style.title} onChange={(e) => setStyleKey({ title: e.target.value })} /></label><label className="label">Thème</label><div className="theme-grid"><button className={`theme-option ${themeId === "base" ? "on" : ""}`} onClick={() => setThemeId("base")}>Base <span className="swatches"><i style={{background:"#fff"}}/><i style={{background:"#14532d"}}/><i style={{background:"#f2f8f4"}}/></span></button>{THEMES.map(t=><button key={t.id} className={`theme-option ${themeId===t.id?"on":""}`} onClick={()=>setThemeId(t.id)}>{t.name}<span className="swatches">{[t.vars.cell,t.vars.cellAlt,t.vars.header,t.vars.button].map(c=><i key={c} style={{background:c}}/>)}</span></button>)}</div>
                 <div className="color-grid"><label className="field">Fond<input type="color" className="color" value={style.bgColor} onChange={(e) => setStyleKey({ bgColor: e.target.value })} /></label><label className="field">Accent<input type="color" className="color" value={style.accent} onChange={(e) => setStyleKey({ accent: e.target.value })} /></label><label className="field">Texte<input type="color" className="color" value={style.textColor || "#151515"} onChange={(e) => setStyleKey({ textColor: e.target.value })} /></label></div>
                 <label className="label">Arrière-plan <input type="file" accept="image/*" onChange={onBgImage} /></label>{style.bgImage && <><button className="link" onClick={() => setStyleKey({ bgImage: "" })}>Retirer l'image</button><label className="field slider">Transparence : {Math.round(style.bgOpacity * 100)} %<input type="range" min="0" max="1" step="0.05" value={style.bgOpacity} onChange={(e) => setStyleKey({ bgOpacity: Number(e.target.value) })} /></label></>}
               </div>}
               {editorTab === "paint" && <div className="control-grid"><p className="hint">Dessine directement sur le planning. Le pot colore la zone ciblée, la pipette reprend une couleur, et les personnalisations restent en mémoire uniquement pendant cette session.</p><div className="paint-tools"><button className={paintTool === "move" ? "paint-tool active" : "paint-tool"} onClick={() => selectPaintTool("move")}>↖<small>Clic normal</small></button>{[["pen","✎","Stylo"],["bucket","▧","Pot"],["eraser","⌫","Gomme"],["picker","⌾","Pipette"],["marker","▰","Surligneur"]].map(([id,icon,label]) => <button key={id} className={paintTool===id ? "paint-tool active" : "paint-tool"} onClick={() => selectPaintTool(id)}>{icon}<small>{label}</small></button>)}</div><label className="label">Épaisseur : {paintSize}px<input type="range" min="2" max="32" value={paintSize} onChange={(e) => setPaintSize(Number(e.target.value))} /></label><label className="label">Couleur<input type="color" className="color" value={paintColor} onChange={(e) => setPaintColor(e.target.value)} /></label><div className="paint-actions"><button className="theme" onClick={undoPaint}>↶ Annuler</button><button className="theme" onClick={redoPaint}>↷ Rétablir</button></div><label className="label">Fond du planning<select className="input" value={paintBackground} onChange={(e) => { setPaintBackground(e.target.value); setStyleKey({ bgColor: e.target.value }); }}><option value="#18132c">Violet profond</option><option value="#25143d">Prune</option><option value="#172554">Bleu nuit</option><option value="#1f2937">Ardoise</option></select></label></div>}
               {editorTab === "stickers" && <div className="control-grid"><p className="hint">Choisis un signe distinctif, puis ajoute des images par jour comme arrière-plan ou logo.</p><div className="sticker-palette">{["🔥","⚡","🏋️","🥊","🏃","🧘","🚴","🏆","💪","🌙"].map((x) => <button key={x} className="sticker-btn" onClick={() => addSticker(x)}>{x}</button>)}</div><label className="label">Images / logos par jour</label><div className="day-images">{DAYS.map((d) => <div key={d} className="day-image-row"><span>{SHORT[d]}</span><input type="file" accept="image/*" onChange={(e) => onDayImage(d, e)} />{style.dayImages[d] && <img src={style.dayImages[d]} alt={`Miniature ${SHORT[d]}`} />}{style.dayImages[d] && <button className="link" onClick={() => removeDayImage(d)}>Retirer</button>}</div>)}</div>{Object.keys(style.dayImages).length > 0 && <label className="field slider">Transparence : {Math.round(style.dayImageOpacity * 100)} %<input type="range" min="0" max="1" step="0.05" value={style.dayImageOpacity} onChange={(e) => setStyleKey({ dayImageOpacity: Number(e.target.value) })} /></label>}<div className="sticker-list">{(style.stickers || []).map((s, i) => <button key={i} className="sticker-chip" onClick={() => removeSticker(i)}>{s.emoji} <small>retirer</small></button>)}</div></div>}
-              {editorTab === "edit" && <div className="control-grid"><p className="hint">Modifie ici la séance sélectionnée : jour, heure, durée, titre, note et couleur.</p>{renderEditor()}<p className="warn-text editor-warning">⚠ Les avertissements restent sans blocage.</p></div>}
+              {editorTab === "edit" && <div className="control-grid"><p className="hint">Clique sur une séance ajoutée dans le planning pour modifier son jour, ses horaires ou la supprimer.</p>{renderEditor()}<p className="warn-text editor-warning">⚠ Les séances ajoutées peuvent être décalées de 30 minutes maximum. Les avertissements restent sans blocage.</p></div>}
             </section>
           </div>
 
@@ -1139,7 +1143,7 @@ export default function App() {
                 />
               )}
 
-              {(style.stickers || []).map((sticker, i) => <span key={i} className="floating-sticker" style={{ left: sticker.x + "%", top: sticker.y + "%", fontSize: (sticker.size || 28) + "px", transform: `rotate(${sticker.rotation || 0}deg)` }}>{sticker.emoji}{false && <button className="sticker-delete" onClick={(e) => { e.stopPropagation(); removeSticker(i); }}>×</button>}</span>)}
+              {(style.stickers || []).map((sticker, i) => <span key={i} className={`floating-sticker ${selectedSticker === i ? "selected" : ""}`} onPointerDown={(e) => startStickerDrag(e, i)} onPointerMove={moveSticker} onPointerUp={endStickerDrag} onPointerCancel={endStickerDrag} onClick={(e) => { e.stopPropagation(); setSelectedSticker(i); }} style={{ left: sticker.x + "%", top: sticker.y + "%", fontSize: (sticker.size || 28) + "px", transform: `rotate(${sticker.rotation || 0}deg)` }}>{sticker.emoji}{selectedSticker === i && <button className="sticker-delete" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); removeSticker(i); setSelectedSticker(null); }}>×</button>}<span className="sticker-resize" onPointerDown={(e) => startStickerDrag(e, i, true)} /></span>)}
               <div style={{ position: "relative", padding: 20, color: theme.text }}>
                 <h2 style={{ color: (themeId === "base" ? (style.accent || "#14532d") : theme.button), marginTop: 0 }}>
                   {style.title || (couple ? "Votre planning" : `Planning de ${result.plans[0].name}`)}
@@ -1167,7 +1171,7 @@ export default function App() {
                   </div>
                 )}
 
-                {renderWeek(true)}
+                {renderWeek(!exporting)}
                 {renderPrintGrid()}
 
                 {couple && result.commonSlots?.length > 0 && (
@@ -1185,6 +1189,11 @@ export default function App() {
               </div>
             </div>
 
+            {renderEditor()}
+
+            <p className="hint small no-print">
+              Clique sur une séance ajoutée pour la modifier. Les séances que tu as déjà fixées ne se déplacent pas.
+            </p>
 
             <div className="row no-print end">
               <button className="btn ghost" onClick={restart}>Recommencer</button>
@@ -1226,12 +1235,7 @@ export default function App() {
 }
 
 const css = `
-* { box-sizing: border-box; min-width: 0; }
-html, body, #root { max-width: 100%; overflow-x: hidden; }
-img, canvas, svg, video, input, select, textarea, button { max-width: 100%; }
-.editor-panel, .editor-sidebar, .editor-workspace, .plan-card, .export-zone { min-width: 0; max-width: 100%; overflow: hidden; }
-.editor-panel input[type=file] { display: block; width: 100%; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
-
+* { box-sizing: border-box; }
 body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .app { max-width: 820px; margin: 0 auto; padding: 48px 20px 80px; font-family: Inter, system-ui, -apple-system, sans-serif; color: #151515; }
 .top h1 { font-size: 32px; margin: 0 0 8px; letter-spacing: -0.03em; font-weight: 700; }
@@ -1299,20 +1303,7 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .event { padding: 8px; border-radius: 8px; margin-bottom: 6px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
 .event.editable { cursor: pointer; }
 .event.editable:hover { box-shadow: 0 0 0 2px rgba(20,83,45,.25); }
-.event span { color: inherit; }
-.mini-track { position:relative; min-height:34px; height:100%; }
-.mini-track-inner { position:relative; min-height:100%; height:100%; }
-.mini-event { position:absolute; left:0; right:0; margin:0; overflow:hidden; padding:5px; font-size:10px; line-height:1.15; }
-.mini-event strong, .mini-event span { color:inherit !important; }
-.mini-event .owner { font-size:9px; }
-/* Vue cartes étroites : une seule colonne lisible. La grande grille imprimable
-   conserve son placement en lanes via .print-event/eventStyle. */
-.card-event-stack { display:flex; flex-direction:column; align-items:stretch; gap:6px; height:auto; min-height:34px; }
-.card-event-stack .mini-event { position:relative !important; inset:auto !important; width:100% !important; min-width:0; height:auto !important; min-height:34px; flex:0 0 auto; overflow:visible; white-space:normal; overflow-wrap:break-word; word-break:normal; writing-mode:horizontal-tb; transform:none; }
-.card-event-stack .mini-event strong, .card-event-stack .mini-event span { display:block; white-space:normal; overflow-wrap:anywhere; }
-.card-event-stack .mini-event strong { font-size:11px; line-height:1.2; }
-.card-event-stack .mini-event > span:not(.owner) { font-size:10px; line-height:1.2; }
-
+.event span { color: #6b6b6b; }
 .warn-dot { color: #dc2626 !important; font-weight: 600; font-size: 11px; }
 .legend { display: flex; flex-wrap: wrap; gap: 16px; margin: 0 0 14px; }
 .legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #444; }
@@ -1335,9 +1326,9 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .line-1 { animation: cineText 6s 0s both; color: #c4b5fd; }.line-2 { animation: cineText 6s 1.5s both; color: #93c5fd; }.line-3 { animation: cineText 6s 3s both; color: #f0abfc; }.line-4 { animation: cineText 6s 4.5s both; color: #86efac; }
 .editor-layout { display: grid; grid-template-columns: 190px 1fr; gap: 20px; margin-bottom: 22px; padding: 18px; border-radius: 24px; background: linear-gradient(135deg,#141126,#1d1534); color: #f5f3ff; box-shadow: 0 24px 70px rgba(53,27,105,.22); }
 .editor-sidebar { display: flex; flex-direction: column; }.editor-brand { display:flex; gap:10px; align-items:center; margin-bottom: 28px; }.editor-brand > span { display:grid; place-items:center; width:34px; height:34px; border-radius:11px; background:linear-gradient(135deg,#c084fc,#7c3aed); box-shadow:0 0 20px #7c3aed; }.editor-brand strong,.editor-brand small { display:block; }.editor-brand small { color:#aaa3c9; font-size:10px; margin-top:3px; }.editor-tabs { display:flex; flex-direction:column; gap:6px; }.editor-tab { border:0; background:transparent; color:#aaa3c9; text-align:left; padding:12px 10px; border-radius:12px; font:inherit; cursor:pointer; display:flex; gap:10px; align-items:center; }.editor-tab.active { color:#fff; background:rgba(167,139,250,.18); box-shadow:inset 3px 0 #c084fc; }.editor-panel { min-width:0; background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.1); border-radius:18px; padding:22px; }.editor-panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:20px; }.editor-panel h2 { color:#fff; margin:5px 0 0; }.eyebrow { color:#c084fc; font-size:10px; font-weight:700; letter-spacing:.16em; }.editor-status { color:#86efac; font-size:11px; }.control-grid { display:grid; gap:16px; }.editor-panel .label { color:#dcd6f2; }.editor-panel .input,.editor-panel .color { background:rgba(8,6,20,.45); border-color:#493c6b; color:#fff; }.editor-panel .hint { color:#b9b1d0; }.color-grid { display:flex; gap:24px; }.theme-row { display:flex; gap:8px; flex-wrap:wrap; }.theme { border:1px solid #5b4a83; color:#fff; border-radius:10px; padding:10px 14px; cursor:pointer; background:#26203d; }.theme-aurora { background:linear-gradient(135deg,#16122e,#6d28d9); }.theme-sunset { background:linear-gradient(135deg,#7c2d12,#fb923c); }.theme-forest { background:linear-gradient(135deg,#14532d,#65a30d); }.sticker-palette { display:flex; flex-wrap:wrap; gap:8px; }.sticker-btn { border:1px solid #58477c; background:#211a3a; border-radius:12px; font-size:24px; width:46px; height:46px; cursor:pointer; transition:transform .15s; }.sticker-btn:hover { transform:translateY(-3px) rotate(-4deg); }.sticker-list { display:flex; gap:8px; flex-wrap:wrap; }.sticker-chip { border:1px solid #66538d; background:#2a2147; color:#fff; border-radius:99px; padding:6px 10px; cursor:pointer; }.sticker-chip small { color:#b8add4; }.planning-warnings { margin: 0 0 14px; padding: 8px 12px; border-left: 3px solid #dc2626; background: #fff1f2; color: #b91c1c; font-size: 12px; line-height: 1.45; }.planning-warnings p { margin: 0; }.planning-warnings p + p { margin-top: 4px; }
-.editor-warning { color:#ff7b87 !important; border-left:2px solid #ef4444; padding-left:10px; }.floating-sticker { position:absolute; z-index:12; pointer-events:auto; user-select:none; font-size:28px; filter:drop-shadow(0 4px 8px rgba(0,0,0,.18)); transform:rotate(-8deg); }.sticker-delete { position:absolute; top:-12px; right:-12px; border:0; border-radius:50%; width:20px; height:20px; background:#dc2626; color:white; cursor:pointer; line-height:18px; }.event-reveal { animation: eventReveal .55s cubic-bezier(.2,.8,.2,1) both; }
+.editor-warning { color:#ff7b87 !important; border-left:2px solid #ef4444; padding-left:10px; }.floating-sticker { position:absolute; z-index:12; pointer-events:auto; cursor:move; user-select:none; font-size:28px; filter:drop-shadow(0 4px 8px rgba(0,0,0,.18)); transform:rotate(-8deg); }.floating-sticker.selected { outline:2px dashed #c084fc; outline-offset:4px; }.sticker-resize { position:absolute; right:-7px; bottom:-7px; width:12px; height:12px; border-radius:3px; background:#c084fc; cursor:nwse-resize; }.sticker-delete { position:absolute; top:-12px; right:-12px; border:0; border-radius:50%; width:20px; height:20px; background:#dc2626; color:white; cursor:pointer; line-height:18px; }.event-reveal { animation: eventReveal .55s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes spin { to { transform:rotate(360deg); } } @keyframes orbitPulse { 50% { transform:scale(1.05); box-shadow:0 0 55px #a78bfa, inset 0 0 36px rgba(139,92,246,.7); } } @keyframes coreGlow { to { transform:scale(1.14) rotate(8deg); } } @keyframes fillCine { to { width:100%; } } @keyframes cineText { 0%,18% { opacity:0; transform:translateY(10px); } 24%,44% { opacity:1; transform:translateY(0); } 52%,100% { opacity:0; transform:translateY(-10px); } } @keyframes eventReveal { from { opacity:0; transform:scale(.84) translateY(8px); } to { opacity:1; transform:scale(1) translateY(0); } }
-/* Les thèmes sont volontairement limités au planning (aperçu/impression inclus). */.theme-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:6px;margin:6px 0 12px;min-width:0;overflow:hidden;box-sizing:border-box}.theme-option{display:flex;flex-direction:column;gap:3px;min-width:0;min-height:0;padding:6px;box-sizing:border-box;overflow:hidden;border:1px solid var(--border);border-radius:10px;background:var(--panel);color:var(--ink);cursor:pointer;font:inherit;font-size:12px;text-align:left}.theme-option.on{outline:2px solid var(--button)}.swatches{display:flex;gap:3px;min-width:0;overflow:hidden}.swatches i{flex:0 0 13px;width:13px;height:13px;border-radius:50%;border:1px solid #0003}
+/* Les thèmes sont volontairement limités au planning (aperçu/impression inclus). */.theme-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;margin:6px 0 12px}.theme-option{display:flex;flex-direction:column;gap:5px;min-width:0;padding:7px 8px;border:1px solid var(--border);border-radius:10px;background:var(--panel);color:var(--ink);cursor:pointer;font:inherit;font-size:12px;text-align:left}.theme-option.on{outline:2px solid var(--button)}.swatches{display:flex;gap:3px}.swatches i{width:13px;height:13px;border-radius:50%;border:1px solid #0003}
 @media (max-width: 680px) { .editor-layout { display:block; padding:12px; }.editor-sidebar { display:block; }.editor-brand { margin:4px 4px 12px; }.editor-tabs { flex-direction:row; gap:4px; }.editor-tab { flex:1; justify-content:center; padding:10px 4px; font-size:12px; }.editor-tab span { display:none; }.editor-panel { margin-top:10px; padding:16px; }.editor-panel-head { margin-bottom:14px; }.color-grid { gap:14px; }.app { padding:26px 12px 54px; } }
 /* Mode éditeur : atelier + aperçu côte à côte, sans surface blanche. */
 html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff; }
@@ -1367,42 +1358,18 @@ html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff;
 .print-sticker { position:absolute; z-index:4; pointer-events:none; filter:drop-shadow(0 2px 3px rgba(0,0,0,.2)); }
 .print-title, .print-grid { position:relative; z-index:3; }
 .print-grid td { height:28px; }
-.agenda-row > th, .agenda-row > td { padding:0 !important; vertical-align:top; }
-.agenda-hours { position:relative; width:42px; min-width:42px; background:var(--print-bg,#fff); }
-.agenda-hours > span { display:block; height:30px; line-height:30px; text-align:center; }
-.agenda-hours .agenda-gap-label { height:10px; line-height:10px; color:var(--print-text,#777); opacity:.55; font-size:9px; }
-.agenda-column { position:relative; overflow:hidden; }
-.agenda-track { position:relative; display:block; min-height:100%; background:repeating-linear-gradient(to bottom, transparent 0, transparent 29px, var(--print-border,#e5e7eb) 29px, var(--print-border,#e5e7eb) 30px); }
-.agenda-event { position:absolute; left:3px; right:3px; margin:0; box-sizing:border-box; overflow:hidden; z-index:2; }
-.agenda-event strong, .agenda-event span, .agenda-event small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.mini-agenda { display:grid; grid-template-columns:34px 1fr; gap:4px; position:relative; }
-.mini-hours { display:flex; flex-direction:column; color:inherit; opacity:.62; font-size:9px; line-height:34px; }
-.mini-track { position:relative; min-height:34px; height:100px; }
 .print-day-image { position:absolute; inset:0; z-index:0; background-size:cover; background-position:center; pointer-events:none; }
 .print-cell-content { position:relative; z-index:1; display:block; }
-
-/* Échelle horaire Atelier : repères et séances partagent exactement la même grille. */
-.mini-agenda { align-items: stretch; }
-.mini-hours { position: relative; line-height: 34px; }
-.mini-hours span { display: block; height: 34px; line-height: 34px; }
-.mini-track, .mini-track-inner { position: relative; min-height: 34px; }
-.card-event-stack { display: block; position: relative; }
-.card-event-stack .mini-event { position: absolute !important; inset: auto !important; margin: 0; overflow: hidden; min-width: 0; max-width: 100%; white-space: normal; }
-.card-event-stack .mini-event strong, .card-event-stack .mini-event span { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 @media print {
   @page { size: A4 landscape; margin: 8mm; }
   html, body { margin:0 !important; background:#fff !important; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
   body * { visibility:hidden !important; }
   #print-root, #print-root * { visibility:visible !important; }
-  #print-root { display:block !important; position:absolute !important; left:0 !important; top:0 !important; width:100% !important; height:100% !important; max-width:100% !important; overflow:hidden !important; }
+  #print-root { display:block !important; position:absolute !important; inset:0 !important; width:100% !important; height:auto !important; }
   #print-root .print-grid-wrap { display:block !important; width:100% !important; color:#151515; }
-  #print-root .print-sheet { position:relative; width:100%; height:100%; max-width:100%; max-height:100%; overflow:hidden; background:var(--print-bg,#fffdf8) !important; color:var(--print-text,#151515) !important; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; transform-origin:top left; }
-  #print-root .print-grid-wrap { width:100% !important; height:100% !important; break-inside:avoid; page-break-inside:avoid; overflow:hidden !important; }
-  #print-root .print-grid, #print-root .print-sheet { break-inside:avoid; page-break-inside:avoid; }
-  #print-root .print-sheet { display:flex; flex-direction:column; }
-  #print-root .print-grid { flex:1 1 auto; height:calc(100% - 24px); min-height:0; }
-  #print-root .agenda-row, #print-root .agenda-row > th, #print-root .agenda-row > td { height:100% !important; }
+  #print-root .print-sheet { position:relative; width:100%; max-height:none; overflow:hidden; background:var(--print-bg,#fffdf8) !important; color:var(--print-text,#151515) !important; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; transform-origin:top left; }
+  #print-root .print-grid-wrap { break-inside:avoid; page-break-inside:avoid; }
   #print-root .print-title { color:var(--print-accent,#7c3aed) !important; font-size:14px !important; margin:0 0 4px !important; }
   /* Impression A4 paysage : densité réduite pour tenir sur une seule page. */
   #print-root .print-sheet { padding:5px !important; }
@@ -1416,31 +1383,6 @@ html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff;
   #print-root .print-rest { font-size:8px !important; }
   #print-root .print-bg-image, #print-root .print-day-image { display:block !important; }
   .print-preview-overlay { display:none !important; }
-}
-
-/* Cadre robuste : aucun enfant ne peut élargir l'atelier ou la grille. */
-.editor-workspace, .editor-layout, .editor-sidebar, .editor-panel, .plan-card, .export-zone, .week-frame, .week, .day, .mini-agenda, .mini-track, .mini-track-inner { min-width:0; max-width:100%; box-sizing:border-box; }
-.editor-panel, .plan-card, .export-zone, .week-frame { overflow:hidden; }
-.week { grid-template-columns:repeat(2,minmax(0,1fr)); }
-.day { overflow:hidden; }
-.day h3, .event, .mini-event, .mini-event strong, .mini-event span { max-width:100%; overflow:hidden; text-overflow:ellipsis; }
-.day-images, .day-image-row, .day-image-row input[type=file] { min-width:0; max-width:100%; }
-.day-image-row { grid-template-columns:44px minmax(0,1fr) auto; }
-.theme-option { min-width:0; max-width:100%; }
-
-/* Impression : une feuille A4 paysage, indépendante de la hauteur écran. */
-@media print {
-  #print-root { width:277mm !important; height:190mm !important; max-width:277mm !important; max-height:190mm !important; }
-  #print-root .print-grid-wrap, #print-root .print-sheet { width:277mm !important; height:190mm !important; max-width:277mm !important; max-height:190mm !important; }
-  #print-root .print-sheet { padding:4mm !important; overflow:hidden !important; }
-  #print-root .print-grid { width:100% !important; height:calc(100% - 18px) !important; table-layout:fixed !important; border-collapse:collapse !important; }
-  #print-root .print-grid th, #print-root .print-grid td { box-sizing:border-box !important; overflow:hidden !important; }
-  #print-root .agenda-row { height:100% !important; }
-  #print-root .agenda-hours, #print-root .agenda-column { height:100% !important; overflow:hidden !important; }
-  #print-root .agenda-track { height:100% !important; min-height:0 !important; overflow:hidden !important; }
-  #print-root .agenda-hours > span { height:30px !important; line-height:30px !important; }
-  #print-root .agenda-event { max-width:calc(100% - 6px) !important; overflow:hidden !important; break-inside:avoid !important; page-break-inside:avoid !important; }
-  #print-root .agenda-event strong, #print-root .agenda-event span, #print-root .agenda-event small { display:block !important; max-width:100% !important; overflow:hidden !important; text-overflow:ellipsis !important; white-space:nowrap !important; }
 }
 
 .paint-canvas { position:absolute; inset:0; width:100%; height:100%; z-index:8; touch-action:none; cursor:crosshair; }
@@ -1457,59 +1399,13 @@ html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff;
 
 /* Atelier : cadre fixe et interactions de dessin au-dessus du planning. */
 .week-frame { position:relative; border:2px solid rgba(167,139,250,.55); border-radius:18px; padding:14px; margin-top:16px; background:rgba(10,7,24,.18); overflow:hidden; }
-.week-frame .week { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:10px; margin-top:0; min-width:0; }
+.week-frame .week { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:0; }
+.week-frame .day { min-width:0; min-height:145px; cursor:grab; user-select:none; touch-action:none; }
+.week-frame .day:active { cursor:grabbing; }
 .paint-canvas { user-select:none; -webkit-user-select:none; touch-action:none; }
-@media screen and (max-width:680px) { .week-frame { overflow-x:auto; } .week-frame .week { grid-template-columns:repeat(7,minmax(92px,1fr)); min-width:700px; } }
+@media (max-width:680px) { .week-frame .week { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 
-/* Aperçu Atelier : colonnes lisibles et défilement horizontal si nécessaire. */
-.editor-workspace > .plan-card,
-.editor-workspace .plan-card .export-zone {
-  min-width: 0;
-  width: 100%;
-  max-width: 100%;
-}
-.editor-workspace .plan-card .export-zone { overflow: hidden; }
-.week-frame {
-  width: 100%;
-  min-width: 0;
-  max-width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
-}
-.week-frame .week {
-  grid-template-columns: repeat(7, minmax(120px, 1fr));
-  min-width: 900px;
-  width: 100%;
-  max-width: none;
-}
-
-/* Impression finale : feuille unique A4 paysage, grille complète et sans débordement. */
-.print-paint-overlay { position:absolute; inset:0; width:100%; height:100%; object-fit:fill; z-index:2; pointer-events:none; opacity:1; }
-@media print {
-  @page { size: A4 landscape; margin: 8mm; }
-  *, *::before, *::after { box-sizing:border-box !important; }
-  html, body, #root, .app { width:100% !important; max-width:none !important; min-width:0 !important; margin:0 !important; padding:0 !important; overflow:hidden !important; background:#fff !important; }
-  body * { visibility:hidden !important; }
-  #print-root, #print-root * { visibility:visible !important; }
-  #print-root { display:block !important; position:absolute !important; inset:0 !important; width:100% !important; height:100% !important; max-width:none !important; max-height:none !important; overflow:hidden !important; }
-  #print-root .print-grid-wrap { display:block !important; width:100% !important; height:100% !important; max-width:none !important; max-height:none !important; overflow:hidden !important; break-inside:avoid !important; page-break-inside:avoid !important; }
-  #print-root .print-sheet { position:relative !important; display:flex !important; flex-direction:column !important; width:100% !important; height:100% !important; max-width:none !important; max-height:none !important; min-width:0 !important; overflow:hidden !important; padding:3mm !important; transform:none !important; background:var(--print-bg,#fff) !important; color:var(--print-text,#151515) !important; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; break-inside:avoid !important; page-break-inside:avoid !important; }
-  #print-root .print-title { flex:0 0 auto !important; margin:0 0 2mm !important; font-size:12pt !important; line-height:1.1 !important; }
-  #print-root .print-grid { display:table !important; width:100% !important; height:calc(100% - 9mm) !important; max-width:100% !important; table-layout:fixed !important; border-collapse:collapse !important; font-size:7pt !important; }
-  #print-root .print-grid thead { display:table-header-group !important; }
-  #print-root .print-grid th, #print-root .print-grid td { box-sizing:border-box !important; overflow:hidden !important; padding:1mm !important; line-height:1.05 !important; }
-  #print-root .print-grid thead th { height:7mm !important; font-size:7.5pt !important; }
-  #print-root .print-grid tbody, #print-root .agenda-row { height:100% !important; }
-  #print-root .agenda-row > th, #print-root .agenda-row > td { height:100% !important; vertical-align:top !important; }
-  #print-root .agenda-hours { width:11mm !important; min-width:11mm !important; }
-  #print-root .agenda-hours > span { height:7mm !important; line-height:7mm !important; font-size:6.5pt !important; }
-  #print-root .agenda-column, #print-root .agenda-track { overflow:hidden !important; height:100% !important; min-height:0 !important; }
-  #print-root .agenda-track { background:repeating-linear-gradient(to bottom, transparent 0, transparent calc(7mm - 1px), var(--print-border,#e5e7eb) calc(7mm - 1px), var(--print-border,#e5e7eb) 7mm) !important; }
-  #print-root .agenda-event { max-width:calc(100% - 2mm) !important; padding:1mm !important; margin:0 !important; line-height:1 !important; break-inside:avoid !important; page-break-inside:avoid !important; }
-  #print-root .agenda-event strong, #print-root .agenda-event span, #print-root .agenda-event small { display:block !important; max-width:100% !important; overflow:hidden !important; text-overflow:ellipsis !important; white-space:nowrap !important; }
-  #print-root .agenda-event strong { font-size:6.5pt !important; }
-  #print-root .agenda-event span, #print-root .agenda-event small { font-size:5.8pt !important; }
-  #print-root .print-bg-image, #print-root .print-day-image, #print-root .print-paint-overlay { display:block !important; }
-  .print-preview-overlay { display:none !important; }
-}
+/* Planning hebdomadaire : grille type emploi du temps, fluide dans l’aperçu. */
+.timetable-frame{width:100%;min-width:0;overflow-x:hidden;padding:0}.timetable-grid{position:relative;display:grid;grid-template-columns:minmax(42px,.62fr) repeat(7,minmax(0,1fr));grid-template-rows:38px repeat(12,minmax(42px,1fr));width:100%;min-width:0;gap:1px;background:var(--timetable-line,#d9dedb);border:1px solid var(--timetable-line,#d9dedb);border-radius:14px;overflow:hidden}.timetable-corner,.timetable-day-head{display:flex;align-items:center;justify-content:center;min-width:0;padding:6px 4px;background:var(--timetable-header,#14532d);color:#fff;font-size:clamp(9px,1.1vw,12px);font-weight:800;letter-spacing:.07em;text-align:center;text-transform:uppercase}.timetable-corner{opacity:.82;font-size:10px}.timetable-hour{z-index:1;display:flex;align-items:flex-start;justify-content:center;padding:8px 2px 0;background:var(--timetable-bg,#fff);color:var(--timetable-muted,#6b6b6b);font-size:clamp(10px,1.15vw,12px);font-weight:750}.timetable-slot{min-width:0;min-height:0;background:var(--timetable-bg,#fff)}.timetable-break{border-top:1px dotted var(--timetable-muted,#6b6b6b)}.timetable-event{z-index:3;display:flex;min-width:0;min-height:0;flex-direction:column;justify-content:center;gap:3px;margin:4px;padding:7px 6px 6px;border:1px solid;border-left-width:2px;border-radius:9px;overflow:hidden;box-shadow:0 2px 5px rgba(15,23,42,.08);font-size:clamp(9px,1.05vw,12px);line-height:1.12;text-align:center}.timetable-event strong{display:block;min-width:0;overflow:hidden;color:inherit;font-size:1em;font-weight:850;letter-spacing:.035em;line-height:1.15;text-overflow:ellipsis;text-transform:uppercase;overflow-wrap:anywhere}.timetable-event .timetable-time{align-self:flex-end;max-width:100%;padding:2px 4px;border-radius:4px;background:rgba(255,255,255,.24);color:inherit;font-size:.78em;font-weight:700;line-height:1;white-space:nowrap}.timetable-event .event-note,.timetable-event .owner{display:block;max-width:100%;overflow:hidden;font-size:.75em;text-overflow:ellipsis;white-space:nowrap}.timetable-event.editable{cursor:pointer}.timetable-event.editable:hover{z-index:4;box-shadow:0 0 0 2px rgba(20,83,45,.42),0 5px 12px rgba(15,23,42,.12)}
+@media(max-width:700px){.timetable-frame{overflow-x:auto;padding-bottom:4px}.timetable-grid{min-width:760px;grid-template-columns:52px repeat(7,minmax(100px,1fr))}.timetable-day-head{font-size:11px}.timetable-event{margin:3px;padding:6px 4px}}@media print{.timetable-frame{display:none!important}}
 `;
