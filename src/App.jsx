@@ -1461,6 +1461,28 @@ html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff;
 .paint-canvas { user-select:none; -webkit-user-select:none; touch-action:none; }
 @media screen and (max-width:680px) { .week-frame { overflow-x:auto; } .week-frame .week { grid-template-columns:repeat(7,minmax(92px,1fr)); min-width:700px; } }
 
+/* Aperçu Atelier : colonnes lisibles et défilement horizontal si nécessaire. */
+.editor-workspace > .plan-card,
+.editor-workspace .plan-card .export-zone {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
+.editor-workspace .plan-card .export-zone { overflow: hidden; }
+.week-frame {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.week-frame .week {
+  grid-template-columns: repeat(7, minmax(120px, 1fr));
+  min-width: 900px;
+  width: 100%;
+  max-width: none;
+}
+
 /* Impression finale : feuille unique A4 paysage, grille complète et sans débordement. */
 .print-paint-overlay { position:absolute; inset:0; width:100%; height:100%; object-fit:fill; z-index:2; pointer-events:none; opacity:1; }
 @media print {
