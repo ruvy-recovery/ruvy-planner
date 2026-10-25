@@ -114,9 +114,8 @@ function fileToDataUrl(file) {
 }
 
 export default function App() {
-  const [showLanding, setShowLanding] = useState(true);
-
   const saved = useRef(loadSaved()).current;
+const [showLanding, setShowLanding] = useState(true);
 
   const [couple, setCouple] = useState(saved?.couple ?? false);
   const [people, setPeople] = useState(saved?.people ?? [emptyPerson("Toi")]);
@@ -537,8 +536,7 @@ export default function App() {
     );
   };
 
-  if (showLanding) return <Landing onStart={() => { setShowLanding(false); window.scrollTo(0,0); }} />;
-
+if (showLanding) { return <Landing onStart={() => setShowLanding(false)} />; }
   return (
     <div className="app">
       <style>{css}</style>
@@ -558,6 +556,7 @@ export default function App() {
 
       <header className={step === 4 ? "top no-print editor-hidden" : "top no-print"}>
         <h1>Mon planning</h1>
+        <button className="no-print" onClick={() => setShowLanding(true)}>{"← Accueil"}</button>
         <p>Construis une semaine d'entraînement adaptée à ton niveau.</p>
       </header>
 
