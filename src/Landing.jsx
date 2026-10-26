@@ -10,7 +10,7 @@ const BOXES = [
     couleur: "#E8B923",
     statut: "validée",
     accroche: "Les essentiels du Jiu-Jitsu brésilien.",
-    photo: "/boxes/jjb.png",
+    photo: "/box-jjb.jpg",
     produits: [
       ["Wet Bag", "Sac imperméable pour les vêtements humides après l'entraînement."],
       ["Finger Tape", "Protection des doigts pendant la pratique."],
@@ -26,7 +26,7 @@ const BOXES = [
     couleur: "#FF7A1A",
     statut: "validée",
     accroche: "Les accessoires pour courir confortablement.",
-    photo: "/boxes/run.png",
+    photo: "/box-run.jpg",
     produits: [
       ["Ceinture running", "Téléphone, clés et petits objets pendant la course."],
       ["Stick anti-frottements", "Prévient les irritations pendant l'effort."],
@@ -42,7 +42,7 @@ const BOXES = [
     couleur: "#9AA0A6",
     statut: "composition en cours",
     accroche: "Les indispensables de la musculation.",
-    photo: "/boxes/gym.png",
+    photo: "/box-gym.jpg",
     produits: [
       ["Serviette microfibre", "Hygiène et transpiration pendant les séances."],
       ["Grips / protections des mains", "Limitent frottements et callosités."],
@@ -58,7 +58,7 @@ const BOXES = [
     couleur: "#E0314B",
     statut: "composition en cours",
     accroche: "Les essentiels pour profiter pleinement de la danse.",
-    photo: "/boxes/bachata.png",
+    photo: "/box-bachata.jpg",
     produits: [
       ["Éventail compact", "Se rafraîchir pendant les cours et soirées."],
       ["Petite serviette microfibre", "Pour essuyer la transpiration."],
@@ -108,6 +108,10 @@ function BoxPhoto({ box }) {
   const ref = useRef(null);
   const [tilt, setTilt] = useState({ x: 0, y: 0, on: false });
   const [erreur, setErreur] = useState(false);
+
+  useEffect(() => {
+    setErreur(false);
+  }, [box.photo]);
 
   const onMove = (e) => {
     const r = ref.current.getBoundingClientRect();
@@ -186,7 +190,10 @@ function Slider() {
         <BoxPhoto box={box} />
 
         <div className="rv-slide-texte">
-          <h2 style={{ color: box.couleur }}>
+          <h2
+            className="rv-box-titre"
+            style={{ color: box.couleur, WebkitTextFillColor: box.couleur }}
+          >
             {box.emoji} {box.nom}
           </h2>
           <p className="rv-accroche">{box.accroche}</p>
@@ -342,12 +349,17 @@ export default function Landing({ onStart }) {
 
 /* ---------- Styles ---------- */
 const CSS = `
-.rv-page{background:#0a0a0a;color:#f2f2f2;font-family:system-ui,-apple-system,Segoe UI,sans-serif;overflow-x:hidden}
+html,body,#root{margin:0!important;padding:0!important;max-width:none!important;width:100%!important;background:#0a0a0a!important;display:block!important;text-align:left!important}
+.rv-page *{box-sizing:border-box}
+.rv-page{background:#0a0a0a;color:#f2f2f2;font-family:system-ui,-apple-system,Segoe UI,sans-serif;overflow-x:hidden;width:100%;max-width:none}
+.rv-page h1,.rv-page .rv-titre{color:#f2f2f2!important;-webkit-text-fill-color:#f2f2f2!important}
+.rv-page .rv-box-titre{color:inherit}
+.rv-page strong{color:inherit!important}
 .rv-reveal{transition:opacity .8s ease,transform .8s ease}
 
 .rv-hero{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px 20px;position:relative;
   background:radial-gradient(ellipse at 50% 30%,#2a2208 0%,#0a0a0a 70%)}
-.rv-logo{max-width:180px;margin-bottom:28px}
+.rv-logo{width:150px;height:150px;object-fit:contain;margin-bottom:28px;border-radius:28px;border:2px solid #E8B923;box-shadow:0 0 30px #E8B92355,0 0 80px #E8B92322}
 .rv-hero h1{font-size:clamp(2.4rem,8vw,5.5rem);line-height:1.02;margin:0;font-weight:900;letter-spacing:-1px}
 .rv-sous-titre{opacity:.7;margin:20px 0 34px;font-size:1.1rem}
 .rv-boutons{display:flex;gap:14px;flex-wrap:wrap;justify-content:center}
