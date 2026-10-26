@@ -26,6 +26,30 @@ const COLORS = [
   { bg: "#eff6ff", border: "#1d4ed8", text: "#1d4ed8" },
 ];
 
+// Calcule la luminance relative d'une couleur (sRGB) pour choisir un
+// texte lisible sur n'importe quel fond (notamment Aurora, Sunset, Forêt
+// ou couleurs personnalisées où style.textColor ne correspond pas au fond
+// réel des cartes de séances).
+function relLuminance(hex) {
+  let h = String(hex || "").trim().replace("#", "");
+  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  if (h.length !== 6) return 1; // défaut clair → texte sombre
+  const r = parseInt(h.slice(0, 2), 16) / 255;
+  const g = parseInt(h.slice(2, 4), 16) / 255;
+  const b = parseInt(h.slice(4, 6), 16) / 255;
+  const lin = (v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+// Retourne la couleur de texte la plus lisible (sombre ou claire) en
+// fonction du fond réel de la carte, par contraste (luminance).
+function pickContrast(bg) {
+  const lum = relLuminance(bg);
+  // Si le fond est clair (luminance élevée), on écrit en sombre.
+  // Sinon on écrit en blanc (#151515 sur fond clair / #f5f3ff sur fond foncé).
+  return lum > 0.55 ? "#151515" : "#f5f3ff";
+}
+
 const CATEGORIES = [
   { name: "Combat", words: ["mma", "boxe", "jjb", "jiu", "judo", "karaté", "karate", "lutte", "muay", "kick", "grappling"] },
   { name: "Musculation", words: ["muscu", "salle", "crossfit", "force", "gym", "fitness"] },
@@ -125,7 +149,10 @@ export default function App() {
     setStarted(true);
     try { localStorage.setItem("ruvy.started", "1"); } catch (_) {}
   };
-  if (!started) return <Landing onStart={handleStart} />;
+  const handleReturnHome = () => {
+    try { localStorage.removeItem("ruvy.started"); } catch (_) {}
+    setStarted(false);
+  };
 
   const [couple, setCouple] = useState(saved?.couple ?? false);
   const [people, setPeople] = useState(saved?.people ?? [emptyPerson("Toi")]);
@@ -179,6 +206,10 @@ export default function App() {
       // quota dépassé (images trop lourdes) : on ignore sans casser l'app
     }
   }, [couple, people, step, result]);
+
+  // ⚠ Le return anticipé vers Landing doit rester après tous les hooks
+  // ci-dessus pour respecter les Rules of Hooks.
+  if (!started) return <Landing onStart={handleStart} />;
 
   const update = (patch) =>
     setPeople((prev) => prev.map((p, i) => (i === active ? { ...p, ...patch } : p)));
@@ -566,6 +597,12 @@ export default function App() {
                 const c = e.together
                   ? { bg: style.blockColor || "#f5f0ff", border: "#7c3aed" }
                   : style.blockColor ? { bg: style.blockColor, border: style.accent } : (COLORS[e.owner] || COLORS[0]);
+                const cardBg = c.bg || "#ffffff";
+                // Texte toujours lisible : calculé par contraste (luminance) sur
+                // le fond réel de la carte. Indépendant du thème Aurora/Sunset/
+                // Forêt ou d'une couleur personnalisée (blockColor) qui peut être
+                // claire alors que style.textColor est foncé, ou l'inverse.
+                const cardText = pickContrast(cardBg);
                 const warns = interactive && !e.together ? warningsFor(e.owner, e.evIndex) : [];
                 const canEdit = interactive && !e.fixed && !e.together;
                 return (
@@ -577,14 +614,15 @@ export default function App() {
                     onClick={canEdit ? () => startEdit(e.owner, e.evIndex) : undefined}
                     onDoubleClick={() => paintTool === "bucket" && setStyleKey({ blockColor: paintColor })}
                     style={{
-                      background: c.bg,
+                      background: cardBg,
                       borderLeft: `3px solid ${warns.length ? "#dc2626" : c.border}`,
                       opacity: e.fixed ? 0.85 : 1,
                       animationDelay: `${i * 90}ms`,
+                      color: cardText,
                     }}
                   >
-                    <strong style={{ color: style.textColor || "#151515" }}>{e.title}</strong>
-                    <span style={{ color: style.textColor || "#151515" }}>{e.start} – {e.end}</span>
+                    <strong style={{ color: cardText }}>{e.title}</strong>
+                    <span style={{ color: cardText, opacity: 0.85 }}>{e.start} – {e.end}</span>
                     {couple && (
                       <span className="owner">{e.together ? "Ensemble" : e.ownerName}</span>
                     )}
@@ -941,7 +979,7 @@ export default function App() {
               </div>
             </aside>
             <section className="editor-panel">
-              <div className="editor-panel-head"><div><span className="eyebrow">PERSONNALISATION</span><h2>{editorTab === "colors" ? "Donne-lui ta couleur" : editorTab === "stickers" ? "Ajoute ton énergie" : "Ajuste tes séances"}</h2></div><span className="editor-status">● Sauvegardé</span></div>
+              <div className="editor-panel-head"><div><span className="eyebrow">PERSONNALISATION</span><h2>{editorTab === "colors" ? "Donne-lui ta couleur" : editorTab === "stickers" ? "Ajoute ton énergie" : "Ajuste tes séances"}</h2></div><div className="editor-panel-actions no-print"><button type="button" className="link" onClick={handleReturnHome} title="Revenir à la page d'accueil">← Retour à l'accueil</button><span className="editor-status">● Sauvegardé</span></div></div>
               {editorTab === "colors" && <div className="control-grid">
                 <label className="label">Titre du planning<input className="input full" value={style.title} onChange={(e) => setStyleKey({ title: e.target.value })} /></label>
                 <div className="color-grid"><label className="field">Fond<input type="color" className="color" value={style.bgColor} onChange={(e) => setStyleKey({ bgColor: e.target.value })} /></label><label className="field">Accent<input type="color" className="color" value={style.accent} onChange={(e) => setStyleKey({ accent: e.target.value })} /></label><label className="field">Texte<input type="color" className="color" value={style.textColor || "#151515"} onChange={(e) => setStyleKey({ textColor: e.target.value })} /></label></div>
