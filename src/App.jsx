@@ -568,7 +568,7 @@ export default function App() {
       (p.events || []).filter((e) => e.day === day && Number(String(e.start || "").split(":")[0]) === hour)
         .map((e) => ({ ...e, owner, ownerName: p.name }))
     );
-    return <div className="print-grid-wrap" data-planner-theme={style.theme || "aurora"} aria-label="Grille imprimable du planning">
+    return <div className="print-grid-wrap" data-planner-theme={style.theme || "aurora"} style={{ "--print-accent": style.accent, color: style.textColor || "#151515", background: style.background || style.bgColor }} aria-label="Grille imprimable du planning">
       <h2 className="print-title">{style.title || "Mon planning"}</h2>
       <table className="print-grid"><thead><tr><th>Heure</th>{DAYS.map((d) => <th key={d}>{d}</th>)}</tr></thead>
         <tbody>{hours.map((hour) => <tr key={hour}><th>{hour}h</th>{DAYS.map((day) => {
@@ -709,7 +709,7 @@ export default function App() {
   }
 
   return (
-    <div className="app" data-planner-theme={style.theme || "aurora"}>
+    <div className="app">
       <style>{css}</style>
 
       {cinematic && (
@@ -985,6 +985,7 @@ export default function App() {
             <div
               ref={exportRef}
               className="export-zone"
+              data-planner-theme={style.theme || "aurora"}
               style={{ "--atelier-event-bg": style.blockColor || "transparent", background: style.background || style.bgColor, color: style.textColor || "#151515", borderColor: style.accent, position: "relative", overflow: "hidden" }}
             >
               <canvas ref={paintCanvasRef} className="paint-canvas" style={{ pointerEvents: ["pen", "marker", "eraser", "bucket", "picker"].includes(paintTool) ? "auto" : "none" }} onPointerDown={(e) => { e.preventDefault(); handlePaintPointer(e); }} onMouseDown={(e) => e.preventDefault()} onPointerMove={(e) => { e.preventDefault(); paintDrawingRef.current && paintPoint(e); }} onPointerUp={endPaint} onPointerCancel={endPaint} aria-label="Dessin par-dessus le planning" />
@@ -1209,10 +1210,21 @@ html.editor-active, html.editor-active body { background:#f7f7f5; color:#151515;
 
 @media print {
   @page { size: A4 landscape; margin: 8mm; }
-  .editor-layout, .no-print, .week-frame, .plan-card .export-zone, .plan-card > .editor, .plan-card > .hint { display:none !important; }
-  body, .app, .editor-workspace, .editor-workspace .plan-card { background:#fff !important; color:#151515 !important; }
-  .app { max-width:none; padding:0; }.editor-workspace { display:block; }.editor-workspace .plan-card { display:block; border:0; box-shadow:none; margin:0; padding:0; }
-  .print-grid-wrap { --print-accent: var(--atelier-event-bg, #7c3aed); display:block !important; color:#151515; }.print-grid-wrap .print-title { color: var(--print-accent); }
+  body, .app { background:#fff !important; color:#151515 !important; }
+  .editor-layout, .no-print, .plan-card > .editor, .plan-card > .hint, .print-grid-wrap { display:none !important; }
+  .app { width:100%; max-width:none; margin:0; padding:0; }
+  .editor-workspace { display:block !important; width:100%; max-width:none; margin:0; }
+  .editor-workspace .plan-card { display:block !important; width:100%; margin:0; padding:0; border:0; box-shadow:none; background:transparent; color:inherit; }
+  .plan-card .export-zone { display:block !important; position:relative !important; width:100%; overflow:visible !important; border:1px solid currentColor; break-inside:avoid; page-break-inside:avoid; print-color-adjust:exact !important; -webkit-print-color-adjust:exact !important; }
+  .plan-card .export-zone, .plan-card .export-zone * { print-color-adjust:exact !important; -webkit-print-color-adjust:exact !important; }
+  .plan-card .week-frame { display:block !important; width:100%; overflow:visible; }
+  .plan-card .week-frame .week { display:grid !important; grid-template-columns:repeat(7,minmax(0,1fr)) !important; gap:4px; width:100%; }
+  .plan-card .week-frame .day { min-width:0; min-height:0; padding:6px 4px; break-inside:avoid; page-break-inside:avoid; }
+  .plan-card .week-frame .day, .plan-card .week-frame .day * { white-space:nowrap; }
+  .plan-card .week-frame .event { font-size:8px; padding:4px 3px; margin-bottom:3px; }
+  .plan-card .week-frame .event strong, .plan-card .week-frame .event span { font-size:8px; }
+  .plan-card .paint-canvas { display:block !important; visibility:visible !important; }
+  .plan-card .export-zone img, .plan-card .export-zone canvas { print-color-adjust:exact !important; -webkit-print-color-adjust:exact !important; }
 }
 
 .paint-canvas { position:absolute; inset:0; width:100%; height:100%; z-index:8; touch-action:none; cursor:crosshair; }
@@ -1240,53 +1252,19 @@ html.editor-active, html.editor-active body { background:#f7f7f5; color:#151515;
 .profile-heading h2 { margin:0; }
 .home-button { min-height:44px; flex:0 0 auto; }
 
-/* Thèmes préparés non-Aurora : mêmes couleurs sur l'atelier, ses cartes et ses contrôles. */
-.app[data-planner-theme="sunset"] .editor-workspace .editor-sidebar { background:linear-gradient(140deg,#79371e,#a84c28); border:1px solid #9e4826; border-radius:18px; padding:18px 12px; }
-.app[data-planner-theme="forest"] .editor-workspace .editor-sidebar { background:linear-gradient(140deg,#164b36,#28704d); border:1px solid #286749; border-radius:18px; padding:18px 12px; }
-.app[data-planner-theme="sunset"] .editor-workspace .editor-layout { background:linear-gradient(140deg,#79371e,#a84c28); color:#fff8f2; box-shadow:0 22px 58px rgba(103,48,22,.2); }
-.app[data-planner-theme="forest"] .editor-workspace .editor-layout { background:linear-gradient(140deg,#164b36,#28704d); color:#f3fff5; box-shadow:0 22px 58px rgba(25,82,53,.2); }
-.app[data-planner-theme="sunset"] .editor-sidebar strong, .app[data-planner-theme="sunset"] .editor-sidebar .editor-brand { color:#fff8f2; }
-.app[data-planner-theme="forest"] .editor-sidebar strong, .app[data-planner-theme="forest"] .editor-sidebar .editor-brand { color:#f3fff5; }
-.app[data-planner-theme="sunset"] .editor-workspace .editor-panel, .app[data-planner-theme="sunset"] .editor-workspace .plan-card { background:var(--planner-surface); border-color:var(--planner-border); color:var(--planner-text); }
-.app[data-planner-theme="forest"] .editor-workspace .editor-panel, .app[data-planner-theme="forest"] .editor-workspace .plan-card { background:var(--planner-surface); border-color:var(--planner-border); color:var(--planner-text); }
-.app[data-planner-theme="sunset"] .editor-panel h2, .app[data-planner-theme="sunset"] .editor-panel .label, .app[data-planner-theme="sunset"] .editor-panel .hint, .app[data-planner-theme="sunset"] .editor-panel .field, .app[data-planner-theme="sunset"] .editor-tab { color:#493126; }
-.app[data-planner-theme="forest"] .editor-panel h2, .app[data-planner-theme="forest"] .editor-panel .label, .app[data-planner-theme="forest"] .editor-panel .hint, .app[data-planner-theme="forest"] .editor-panel .field, .app[data-planner-theme="forest"] .editor-tab { color:#214b35; }
-.app[data-planner-theme="sunset"] .editor-panel .eyebrow { color:#8d421e; }
-.app[data-planner-theme="forest"] .editor-panel .eyebrow { color:#176b45; }
-.app[data-planner-theme="sunset"] .editor-panel .editor-status { color:#216744; }
-.app[data-planner-theme="forest"] .editor-panel .editor-status { color:#176b45; }
-.app[data-planner-theme="sunset"] .editor-workspace .sticker-chip { color:#71351f; background:#fff4eb; border-color:#ddb394; }
-.app[data-planner-theme="forest"] .editor-workspace .sticker-chip { color:#205239; background:#eff8f0; border-color:#a9cbb4; }
-.app[data-planner-theme="sunset"] .editor-tab.active { color:#fff; background:#b64018; box-shadow:inset 3px 0 #7c2d12; }
-.app[data-planner-theme="forest"] .editor-tab.active { color:#fff; background:#176b45; box-shadow:inset 3px 0 #104b31; }
-.app[data-planner-theme="sunset"] .editor-panel .input, .app[data-planner-theme="sunset"] .editor-panel .color { background:#fff; border-color:#ddb394; color:#382219; }
-.app[data-planner-theme="forest"] .editor-panel .input, .app[data-planner-theme="forest"] .editor-panel .color { background:#fff; border-color:#a9cbb4; color:#153b2a; }
-.app[data-planner-theme="sunset"] .editor-workspace .plan-card .day { background-color:rgba(255,250,246,.88); border-color:#f1c5a7; }
-.app[data-planner-theme="forest"] .editor-workspace .plan-card .day { background-color:rgba(247,255,248,.9); border-color:#b8d8c3; }
-.app[data-planner-theme="sunset"] .editor-workspace .plan-card .day h3, .app[data-planner-theme="sunset"] .editor-workspace .plan-card .legend-item, .app[data-planner-theme="sunset"] .editor-workspace .plan-card .event, .app[data-planner-theme="sunset"] .editor-workspace .plan-card .event span, .app[data-planner-theme="sunset"] .editor-workspace .plan-card .hint, .app[data-planner-theme="sunset"] .editor-workspace .plan-card .list li { color:#382219; }
-.app[data-planner-theme="forest"] .editor-workspace .plan-card .day h3, .app[data-planner-theme="forest"] .editor-workspace .plan-card .legend-item, .app[data-planner-theme="forest"] .editor-workspace .plan-card .event, .app[data-planner-theme="forest"] .editor-workspace .plan-card .event span, .app[data-planner-theme="forest"] .editor-workspace .plan-card .hint, .app[data-planner-theme="forest"] .editor-workspace .plan-card .list li { color:#153b2a; }
-.app[data-planner-theme="sunset"] .editor-workspace .plan-card .rest { color:#60321f; background:#ffe7d5; border-color:#edc09e; }
-.app[data-planner-theme="forest"] .editor-workspace .plan-card .rest { color:#205239; background:#e0f1e3; border-color:#afd1b8; }
-.app[data-planner-theme="sunset"] .editor-workspace .plan-card .badge-ia { color:#7c2d12; background:#ffead9; }
-.app[data-planner-theme="forest"] .editor-workspace .plan-card .badge-ia { color:#155b3a; background:#e0f2e4; }
-.app[data-planner-theme="sunset"] .editor-workspace .plan-card .list li, .app[data-planner-theme="sunset"] .editor-workspace .plan-card .want-card { background:#fff4eb; border-color:#f1c5a7; }
-.app[data-planner-theme="forest"] .editor-workspace .plan-card .list li, .app[data-planner-theme="forest"] .editor-workspace .plan-card .want-card { background:#eff8f0; border-color:#b8d8c3; }
-.app[data-planner-theme="sunset"] .editor-workspace .plan-card .list small { color:#70574a; }
-.app[data-planner-theme="forest"] .editor-workspace .plan-card .list small { color:#496b57; }
-.app[data-planner-theme="sunset"] .editor-workspace .btn:not(.theme-sunset):not(.theme-forest):not(.theme-aurora) { color:#fff; background:#b64018; border-color:#b64018; }
-.app[data-planner-theme="forest"] .editor-workspace .btn:not(.theme-sunset):not(.theme-forest):not(.theme-aurora) { color:#fff; background:#176b45; border-color:#176b45; }
-.app[data-planner-theme="sunset"] .editor-workspace .btn.ghost { color:#71351f; background:#fffaf6; border-color:#ddb394; }
-.app[data-planner-theme="forest"] .editor-workspace .btn.ghost { color:#205239; background:#f8fff9; border-color:#a9cbb4; }
-.app[data-planner-theme="sunset"] .editor-workspace .theme:not(.theme-sunset):not(.theme-forest):not(.theme-aurora) { color:#71351f; background:#fff4eb; border-color:#ddb394; }
-.app[data-planner-theme="forest"] .editor-workspace .theme:not(.theme-sunset):not(.theme-forest):not(.theme-aurora) { color:#205239; background:#eff8f0; border-color:#a9cbb4; }
-.app[data-planner-theme="sunset"] .editor-workspace .paint-tool, .app[data-planner-theme="sunset"] .editor-workspace .sticker-btn { color:#71351f; background:#fff4eb; border-color:#ddb394; }
-.app[data-planner-theme="forest"] .editor-workspace .paint-tool, .app[data-planner-theme="forest"] .editor-workspace .sticker-btn { color:#205239; background:#eff8f0; border-color:#a9cbb4; }
-.app[data-planner-theme="sunset"] .editor-workspace .paint-tool small, .app[data-planner-theme="sunset"] .editor-workspace .sticker-chip small { color:#70574a; }
-.app[data-planner-theme="forest"] .editor-workspace .paint-tool small, .app[data-planner-theme="forest"] .editor-workspace .sticker-chip small { color:#496b57; }
-.app[data-planner-theme="sunset"] .editor-workspace .paint-tool.active { color:#fff; background:#b64018; border-color:#9a3516; }
-.app[data-planner-theme="forest"] .editor-workspace .paint-tool.active { color:#fff; background:#176b45; border-color:#12583a; }
-.app[data-planner-theme="sunset"] .editor-workspace .link { color:#8d421e; }
-.app[data-planner-theme="forest"] .editor-workspace .link { color:#176b45; }
+/* Couleurs du thème limitées au contenu du planning, jamais aux commandes de l'atelier. */
+.export-zone[data-planner-theme="sunset"] .rest { color:#60321f; background:#ffe7d5; border-color:#edc09e; }
+.export-zone[data-planner-theme="forest"] .rest { color:#205239; background:#e0f1e3; border-color:#afd1b8; }
+.export-zone[data-planner-theme="sunset"] .badge-ia { color:#7c2d12; background:#ffead9; }
+.export-zone[data-planner-theme="forest"] .badge-ia { color:#155b3a; background:#e0f2e4; }
+.export-zone[data-planner-theme="sunset"] .list li, .export-zone[data-planner-theme="sunset"] .want-card { background:#fff4eb; border-color:#f1c5a7; }
+.export-zone[data-planner-theme="forest"] .list li, .export-zone[data-planner-theme="forest"] .want-card { background:#eff8f0; border-color:#b8d8c3; }
+.export-zone[data-planner-theme="sunset"] .list li, .export-zone[data-planner-theme="sunset"] .event strong, .export-zone[data-planner-theme="sunset"] .event span { color:#382219; }
+.export-zone[data-planner-theme="forest"] .list li, .export-zone[data-planner-theme="forest"] .event strong, .export-zone[data-planner-theme="forest"] .event span { color:#153b2a; }
+.export-zone[data-planner-theme="sunset"] .list small { color:#70574a; }
+.export-zone[data-planner-theme="forest"] .list small { color:#496b57; }
+.export-zone[data-planner-theme="aurora"] .event strong,
+.export-zone[data-planner-theme="aurora"] .event span { color:#201a32 !important; }
 
 /* Les thèmes colorent le planning imprimable/aperçu, jamais la page globale. */
 .print-grid-wrap[data-planner-theme="sunset"] { --print-accent:#b64018; color:#382219; background:#fffaf6; }
@@ -1297,8 +1275,6 @@ html.editor-active, html.editor-active body { background:#f7f7f5; color:#151515;
 .print-grid-wrap[data-planner-theme="forest"] .print-grid th,
 .print-grid-wrap[data-planner-theme="forest"] .print-grid td { color:#153b2a; }
 .print-grid-wrap[data-planner-theme="forest"] .print-rest { color:#496b57; }
-.app[data-planner-theme="aurora"] .editor-workspace .plan-card .event strong,
-.app[data-planner-theme="aurora"] .editor-workspace .plan-card .event span { color:#201a32 !important; }
 .cinematic-home { position:fixed; z-index:2; top:max(16px,env(safe-area-inset-top)); left:max(16px,env(safe-area-inset-left)); min-height:44px; }
 .print-preview-home { position:absolute; top:12px; left:12px; z-index:1; min-height:44px; }
 @media (max-width:680px) { .profile-heading { align-items:stretch; flex-direction:column; } .home-button { width:100%; min-height:46px; } .print-preview-modal { padding:72px 14px 20px; } .print-preview-home { top:14px; left:14px; } .print-preview-close { top:14px; right:14px; } }
@@ -1340,9 +1316,7 @@ html.editor-active .app {
 .editor-tab { min-width: 0; gap: 8px; padding: 11px 8px; font-size: 13px; }
 .editor-tab > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .editor-workspace .editor-sidebar .editor-tab:not(.active) { color: rgba(255,255,255,.78); }
-.editor-workspace .editor-sidebar .editor-tab:not(.active):hover,
-.app[data-planner-theme="forest"] .editor-workspace .editor-sidebar .editor-tab:not(.active):hover,
-.app[data-planner-theme="sunset"] .editor-workspace .editor-sidebar .editor-tab:not(.active):hover {
+.editor-workspace .editor-sidebar .editor-tab:not(.active):hover {
   color: #fff;
   background: rgba(255,255,255,.12);
 }
