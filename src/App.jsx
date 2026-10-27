@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
+import Landing from "./Landing";
 
 const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
 const SHORT = { Lundi: "Lun", Mardi: "Mar", Mercredi: "Mer", Jeudi: "Jeu", Vendredi: "Ven", Samedi: "Sam", Dimanche: "Dim" };
@@ -124,6 +125,7 @@ function fileToDataUrl(file) {
 
 export default function App() {
   const saved = useRef(loadSaved()).current;
+  const [showLanding, setShowLanding] = useState(true);
 
   const [couple, setCouple] = useState(saved?.couple ?? false);
   const [people, setPeople] = useState(saved?.people ?? [emptyPerson("Toi")]);
@@ -164,16 +166,9 @@ export default function App() {
   const progress = Math.round((Math.min(step, 2) / 2) * 100);
 
   useEffect(() => {
-    document.documentElement.classList.toggle("editor-active", step === 4);
+    document.documentElement.classList.toggle("editor-active", !showLanding && step === 4);
     return () => document.documentElement.classList.remove("editor-active");
-  }, [step]);
-
-  useEffect(() => {
-    const root = document.documentElement;
-    if (step === 4) root.dataset.plannerTheme = style.theme || "aurora";
-    else delete root.dataset.plannerTheme;
-    return () => { delete root.dataset.plannerTheme; };
-  }, [step, style.theme]);
+  }, [step, showLanding]);
 
   // ----- Sauvegarde automatique -----
   useEffect(() => {
@@ -371,6 +366,10 @@ export default function App() {
     setEditing(null);
     setActive(0);
     setStep(0);
+    setShowLanding(true);
+    document.documentElement.classList.remove("editor-active");
+    delete document.documentElement.dataset.plannerTheme;
+    window.scrollTo(0, 0);
   };
   const selectEditorTab = (tab) => { setEditorTab(tab); setPaintTool("move"); setSelectedSticker(null); };
   const selectPaintTool = (tool) => { setPaintTool(tool); setSelectedSticker(null); };
@@ -569,7 +568,7 @@ export default function App() {
       (p.events || []).filter((e) => e.day === day && Number(String(e.start || "").split(":")[0]) === hour)
         .map((e) => ({ ...e, owner, ownerName: p.name }))
     );
-    return <div className="print-grid-wrap" aria-label="Grille imprimable du planning">
+    return <div className="print-grid-wrap" data-planner-theme={style.theme || "aurora"} aria-label="Grille imprimable du planning">
       <h2 className="print-title">{style.title || "Mon planning"}</h2>
       <table className="print-grid"><thead><tr><th>Heure</th>{DAYS.map((d) => <th key={d}>{d}</th>)}</tr></thead>
         <tbody>{hours.map((hour) => <tr key={hour}><th>{hour}h</th>{DAYS.map((day) => {
@@ -705,6 +704,10 @@ export default function App() {
     );
   };
 
+  if (showLanding) {
+    return <Landing onStart={() => { setShowLanding(false); setStep(0); window.scrollTo(0, 0); }} />;
+  }
+
   return (
     <div className="app" data-planner-theme={style.theme || "aurora"}>
       <style>{css}</style>
@@ -747,16 +750,13 @@ export default function App() {
         </div>
       )}
 
-      {step !== 0 && (
-        <nav className="home-nav no-print" aria-label="Navigation principale">
-          <button type="button" className="btn ghost home-button" onClick={goHome}>← Retour à l'accueil</button>
-        </nav>
-      )}
-
       {/* ---------- ÉTAPE 1 : PROFIL ---------- */}
       {step === 0 && (
         <section className="card">
-          <h2>Pour qui est ce planning ?</h2>
+          <div className="profile-heading">
+            <h2>Pour qui est ce planning ?</h2>
+            <button type="button" className="btn ghost home-button" onClick={goHome}>← Retour à l'accueil</button>
+          </div>
           <div className="choices">
             <button className={!couple ? "choice on" : "choice"} onClick={() => toggleCouple(false)}>
               <strong>Moi seul</strong>
@@ -1185,7 +1185,7 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 @keyframes spin { to { transform:rotate(360deg); } } @keyframes orbitPulse { 50% { transform:scale(1.05); box-shadow:0 0 55px #a78bfa, inset 0 0 36px rgba(139,92,246,.7); } } @keyframes coreGlow { to { transform:scale(1.14) rotate(8deg); } } @keyframes fillCine { to { width:100%; } } @keyframes cineText { 0%,18% { opacity:0; transform:translateY(10px); } 24%,44% { opacity:1; transform:translateY(0); } 52%,100% { opacity:0; transform:translateY(-10px); } } @keyframes eventReveal { from { opacity:0; transform:scale(.84) translateY(8px); } to { opacity:1; transform:scale(1) translateY(0); } }
 @media (max-width: 680px) { .editor-layout { display:block; padding:12px; }.editor-sidebar { display:block; }.editor-brand { margin:4px 4px 12px; }.editor-tabs { flex-direction:row; gap:4px; }.editor-tab { flex:1; justify-content:center; padding:10px 4px; font-size:12px; }.editor-tab span { display:none; }.editor-panel { margin-top:10px; padding:16px; }.editor-panel-head { margin-bottom:14px; }.color-grid { gap:14px; }.app { padding:26px 12px 54px; } }
 /* Mode éditeur : atelier + aperçu côte à côte, sans surface blanche. */
-html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff; }
+html.editor-active, html.editor-active body { background:#f7f7f5; color:#151515; }
 .editor-workspace { display:grid; grid-template-columns:190px minmax(280px,1fr) minmax(390px,1.35fr); gap:20px; align-items:start; }
 .editor-workspace .editor-layout { display:contents; }
 .editor-workspace .editor-sidebar { grid-column:1; position:sticky; top:20px; padding:18px 0; }
@@ -1194,7 +1194,9 @@ html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff;
 .editor-workspace .plan-card .export-zone { background:transparent; }
 .editor-workspace .plan-card .day { background:#211a38; border-color:#40335f; }
 .editor-workspace .plan-card .day h3, .editor-workspace .plan-card .legend-item { color:#eee9ff; }
-.editor-workspace .plan-card .event { background:var(--atelier-event-bg, inherit); color:inherit; }
+.editor-workspace .plan-card .event { background:var(--atelier-event-bg, #f5f0ff); color:#151515; }
+.editor-workspace .plan-card .event strong, .editor-workspace .plan-card .event span { color:#151515; }
+
 .editor-workspace .plan-card .event span, .editor-workspace .plan-card .hint, .editor-workspace .plan-card .rest { color:inherit; }
 .editor-workspace .plan-card .badge-ia { background:#2d2250; color:#d8b4fe; }
 .editor-workspace .plan-card .list li { background:#211a38; border-color:#40335f; color:#f5f3ff; }
@@ -1233,16 +1235,12 @@ html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff;
 .paint-canvas { user-select:none; -webkit-user-select:none; touch-action:none; }
 @media (max-width:680px) { .week-frame .week { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 
-/* Retour à l'accueil : bouton accessible au toucher et à la souris. */
-.home-nav { display:flex; justify-content:flex-start; margin:0 0 16px; }
-.home-button { min-height:44px; }
+/* Retour à l'accueil, au niveau de l'en-tête de l'étape Profil. */
+.profile-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:24px; }
+.profile-heading h2 { margin:0; }
+.home-button { min-height:44px; flex:0 0 auto; }
 
 /* Thèmes préparés non-Aurora : mêmes couleurs sur l'atelier, ses cartes et ses contrôles. */
-.app[data-planner-theme="sunset"] { --planner-text:#382219; --planner-muted:#70574a; --planner-accent:#b64018; --planner-surface:#fffaf6; --planner-border:#f1c5a7; --planner-soft:#ffefe2; }
-.app[data-planner-theme="forest"] { --planner-text:#153b2a; --planner-muted:#496b57; --planner-accent:#176b45; --planner-surface:#f8fff9; --planner-border:#b8d8c3; --planner-soft:#eaf6ec; }
-html[data-planner-theme="sunset"], html[data-planner-theme="sunset"] body { min-height:100%; background:linear-gradient(135deg,#fff7ed 0%,#ffe2c5 55%,#f8c9ac 100%) fixed; color:#382219; }
-html[data-planner-theme="forest"], html[data-planner-theme="forest"] body { min-height:100%; background:linear-gradient(135deg,#eff8ef 0%,#d9eedc 52%,#c5e3cc 100%) fixed; color:#153b2a; }
-.app[data-planner-theme="sunset"] .home-button, .app[data-planner-theme="forest"] .home-button { color:var(--planner-text); background:var(--planner-surface); border-color:var(--planner-border); }
 .app[data-planner-theme="sunset"] .editor-workspace .editor-sidebar { background:linear-gradient(140deg,#79371e,#a84c28); border:1px solid #9e4826; border-radius:18px; padding:18px 12px; }
 .app[data-planner-theme="forest"] .editor-workspace .editor-sidebar { background:linear-gradient(140deg,#164b36,#28704d); border:1px solid #286749; border-radius:18px; padding:18px 12px; }
 .app[data-planner-theme="sunset"] .editor-workspace .editor-layout { background:linear-gradient(140deg,#79371e,#a84c28); color:#fff8f2; box-shadow:0 22px 58px rgba(103,48,22,.2); }
@@ -1289,8 +1287,20 @@ html[data-planner-theme="forest"], html[data-planner-theme="forest"] body { min-
 .app[data-planner-theme="forest"] .editor-workspace .paint-tool.active { color:#fff; background:#176b45; border-color:#12583a; }
 .app[data-planner-theme="sunset"] .editor-workspace .link { color:#8d421e; }
 .app[data-planner-theme="forest"] .editor-workspace .link { color:#176b45; }
+
+/* Les thèmes colorent le planning imprimable/aperçu, jamais la page globale. */
+.print-grid-wrap[data-planner-theme="sunset"] { --print-accent:#b64018; color:#382219; background:#fffaf6; }
+.print-grid-wrap[data-planner-theme="sunset"] .print-grid th,
+.print-grid-wrap[data-planner-theme="sunset"] .print-grid td { color:#382219; }
+.print-grid-wrap[data-planner-theme="sunset"] .print-rest { color:#70574a; }
+.print-grid-wrap[data-planner-theme="forest"] { --print-accent:#176b45; color:#153b2a; background:#f8fff9; }
+.print-grid-wrap[data-planner-theme="forest"] .print-grid th,
+.print-grid-wrap[data-planner-theme="forest"] .print-grid td { color:#153b2a; }
+.print-grid-wrap[data-planner-theme="forest"] .print-rest { color:#496b57; }
+.app[data-planner-theme="aurora"] .editor-workspace .plan-card .event strong,
+.app[data-planner-theme="aurora"] .editor-workspace .plan-card .event span { color:#201a32 !important; }
 .cinematic-home { position:fixed; z-index:2; top:max(16px,env(safe-area-inset-top)); left:max(16px,env(safe-area-inset-left)); min-height:44px; }
 .print-preview-home { position:absolute; top:12px; left:12px; z-index:1; min-height:44px; }
-@media (max-width:680px) { .home-nav { margin-bottom:12px; } .home-button { width:100%; min-height:46px; } .print-preview-modal { padding:72px 14px 20px; } .print-preview-home { top:14px; left:14px; } .print-preview-close { top:14px; right:14px; } }
+@media (max-width:680px) { .profile-heading { align-items:stretch; flex-direction:column; } .home-button { width:100%; min-height:46px; } .print-preview-modal { padding:72px 14px 20px; } .print-preview-home { top:14px; left:14px; } .print-preview-close { top:14px; right:14px; } }
 
 `;
