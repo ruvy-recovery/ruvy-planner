@@ -2,7 +2,6 @@
 import { useState, useEffect, useRef } from "react";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
-import Landing from "./Landing";
 
 const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
 const SHORT = { Lundi: "Lun", Mardi: "Mar", Mercredi: "Mer", Jeudi: "Jeu", Vendredi: "Ven", Samedi: "Sam", Dimanche: "Dim" };
@@ -19,36 +18,12 @@ const SLOTS = [
   { id: "soir", label: "Soir" },
 ];
 
-const STEPS = ["Profil", "Ta semaine", "Objectifs"];
+const STEPS = ["Profil", "Ta semaine", "Objectifs", "Personnalisation"];
 
 const COLORS = [
   { bg: "#f2f8f4", border: "#14532d", text: "#14532d" },
   { bg: "#eff6ff", border: "#1d4ed8", text: "#1d4ed8" },
 ];
-
-// Calcule la luminance relative d'une couleur (sRGB) pour choisir un
-// texte lisible sur n'importe quel fond (notamment Aurora, Sunset, Forêt
-// ou couleurs personnalisées où style.textColor ne correspond pas au fond
-// réel des cartes de séances).
-function relLuminance(hex) {
-  let h = String(hex || "").trim().replace("#", "");
-  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
-  if (h.length !== 6) return 1; // défaut clair → texte sombre
-  const r = parseInt(h.slice(0, 2), 16) / 255;
-  const g = parseInt(h.slice(2, 4), 16) / 255;
-  const b = parseInt(h.slice(4, 6), 16) / 255;
-  const lin = (v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
-  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-}
-
-// Retourne la couleur de texte la plus lisible (sombre ou claire) en
-// fonction du fond réel de la carte, par contraste (luminance).
-function pickContrast(bg) {
-  const lum = relLuminance(bg);
-  // Si le fond est clair (luminance élevée), on écrit en sombre.
-  // Sinon on écrit en blanc (#151515 sur fond clair / #f5f3ff sur fond foncé).
-  return lum > 0.55 ? "#151515" : "#f5f3ff";
-}
 
 const CATEGORIES = [
   { name: "Combat", words: ["mma", "boxe", "jjb", "jiu", "judo", "karaté", "karate", "lutte", "muay", "kick", "grappling"] },
@@ -100,11 +75,9 @@ const emptyPerson = (name) => ({
   level: "debutant",
   fixed: [],
   wants: [],
-  preferredDays: [],
-  preferredSlots: ["soir"],
   maxSessions: 3,
-  earliest: "06:00",
-  latest: "22:00",
+  firstSessionHour: 6,
+  lastSessionHour: 22,
 });
 
 const defaultStyle = {
@@ -122,7 +95,19 @@ const defaultStyle = {
 function loadSaved() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const saved = JSON.parse(raw);
+    if (Array.isArray(saved?.people)) {
+      saved.people = saved.people.map((p) => {
+        const clean = Object.fromEntries(Object.entries(p || {}).filter(([key]) => !key.startsWith("pref")));
+        const hour = (value, fallback) => {
+          const n = Number(String(value ?? "").split(":")[0]);
+          return Number.isFinite(n) ? Math.max(5, Math.min(23, n)) : fallback;
+        };
+        return { ...emptyPerson(clean.name || "Toi"), ...clean, firstSessionHour: hour(clean.firstSessionHour, 6), lastSessionHour: hour(clean.lastSessionHour, 22) };
+      });
+    }
+    return saved;
   } catch {
     return null;
   }
@@ -139,20 +124,6 @@ function fileToDataUrl(file) {
 
 export default function App() {
   const saved = useRef(loadSaved()).current;
-
-  // Landing -> Planner gate (persisted via localStorage)
-  const [started, setStarted] = useState(
-    typeof window !== "undefined" &&
-      (() => { try { return localStorage.getItem("ruvy.started") === "1"; } catch (_) { return false; } })()
-  );
-  const handleStart = () => {
-    setStarted(true);
-    try { localStorage.setItem("ruvy.started", "1"); } catch (_) {}
-  };
-  const handleReturnHome = () => {
-    try { localStorage.removeItem("ruvy.started"); } catch (_) {}
-    setStarted(false);
-  };
 
   const [couple, setCouple] = useState(saved?.couple ?? false);
   const [people, setPeople] = useState(saved?.people ?? [emptyPerson("Toi")]);
@@ -178,6 +149,8 @@ export default function App() {
   const paintCanvasRef = useRef(null);
   const paintDrawingRef = useRef(false);
   const [exporting, setExporting] = useState(false);
+  const [printPreview, setPrintPreview] = useState(false);
+  const generationController = useRef(null);
 
   const [draft, setDraft] = useState({ title: "", days: [], start: "18:00", end: "19:00" });
   const [wantDraft, setWantDraft] = useState("");
@@ -195,6 +168,13 @@ export default function App() {
     return () => document.documentElement.classList.remove("editor-active");
   }, [step]);
 
+  useEffect(() => {
+    const root = document.documentElement;
+    if (step === 4) root.dataset.plannerTheme = style.theme || "aurora";
+    else delete root.dataset.plannerTheme;
+    return () => { delete root.dataset.plannerTheme; };
+  }, [step, style.theme]);
+
   // ----- Sauvegarde automatique -----
   useEffect(() => {
     try {
@@ -206,10 +186,6 @@ export default function App() {
       // quota dépassé (images trop lourdes) : on ignore sans casser l'app
     }
   }, [couple, people, step, result]);
-
-  // ⚠ Le return anticipé vers Landing doit rester après tous les hooks
-  // ci-dessus pour respecter les Rules of Hooks.
-  if (!started) return <Landing onStart={handleStart} />;
 
   const update = (patch) =>
     setPeople((prev) => prev.map((p, i) => (i === active ? { ...p, ...patch } : p)));
@@ -276,11 +252,14 @@ export default function App() {
     setLoading(true);
     setCinematic(true);
     setError("");
+    const controller = new AbortController();
+    generationController.current = controller;
     try {
       const r = await fetch("/api/plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ couple, people }),
+        signal: controller.signal,
       });
       if (!r.ok) throw new Error("Erreur serveur");
       const data = await r.json();
@@ -290,8 +269,9 @@ export default function App() {
       setEditing(null);
       window.setTimeout(() => setCinematic(false), 6000);
     } catch (e) {
-      setError("Impossible de générer le planning. Réessaie dans un instant.");
+      if (e.name !== "AbortError") setError("Impossible de générer le planning. Réessaie dans un instant.");
     } finally {
+      if (generationController.current === controller) generationController.current = null;
       setLoading(false);
     }
   };
@@ -371,7 +351,27 @@ export default function App() {
   // ----- Personnalisation -----
   const setStyleKey = (patch) => setStyle((prev) => ({ ...prev, ...patch }));
 
-  const applyTheme = (theme) => { setPaintBackground(theme.bgColor); setStyleKey(theme); };
+  const applyTheme = (theme) => {
+    setPaintBackground(theme.bgColor);
+    setStyle((prev) => ({
+      ...prev,
+      ...theme,
+      ...(theme.theme === "aurora"
+        ? { background: "", surfaceColor: "", surfaceBorder: "", softSurface: "", dayColor: "", blockColor: "" }
+        : {}),
+    }));
+  };
+  const goHome = () => {
+    generationController.current?.abort();
+    generationController.current = null;
+    setLoading(false);
+    setResult(null);
+    setCinematic(false);
+    setPrintPreview(false);
+    setEditing(null);
+    setActive(0);
+    setStep(0);
+  };
   const selectEditorTab = (tab) => { setEditorTab(tab); setPaintTool("move"); setSelectedSticker(null); };
   const selectPaintTool = (tool) => { setPaintTool(tool); setSelectedSticker(null); };
   const addSticker = (sticker) => setStyleKey({ stickers: [...(style.stickers || []), { emoji: sticker, x: 18 + ((style.stickers || []).length * 17) % 70, y: 16 + ((style.stickers || []).length * 23) % 65, size: 28, rotation: -8 }] });
@@ -503,7 +503,7 @@ export default function App() {
       const hit = document.elementsFromPoint(e.clientX, e.clientY).find((node) => !node.classList?.contains("paint-canvas") && node.matches?.(".day, .export-zone h2, .export-zone"));
       if (hit?.matches(".day")) hit.style.backgroundColor = paintColor;
       else if (hit?.matches("h2")) hit.style.color = paintColor;
-      else setPaintBackground(paintColor);
+      else { setPaintBackground(paintColor); setStyleKey({ bgColor: paintColor, background: "", dayColor: paintColor }); }
       return;
     }
     beginPaint(e);
@@ -560,6 +560,25 @@ export default function App() {
     return merged;
   };
 
+  const renderPrintGrid = () => {
+    if (!result) return null;
+    const start = Math.max(5, Math.min(23, Number(person?.firstSessionHour) || 6));
+    const end = Math.max(start, Math.min(23, Number(person?.lastSessionHour) || 22));
+    const hours = Array.from({ length: end - start + 1 }, (_, i) => start + i);
+    const eventsAt = (day, hour) => result.plans.flatMap((p, owner) =>
+      (p.events || []).filter((e) => e.day === day && Number(String(e.start || "").split(":")[0]) === hour)
+        .map((e) => ({ ...e, owner, ownerName: p.name }))
+    );
+    return <div className="print-grid-wrap" aria-label="Grille imprimable du planning">
+      <h2 className="print-title">{style.title || "Mon planning"}</h2>
+      <table className="print-grid"><thead><tr><th>Heure</th>{DAYS.map((d) => <th key={d}>{d}</th>)}</tr></thead>
+        <tbody>{hours.map((hour) => <tr key={hour}><th>{hour}h</th>{DAYS.map((day) => {
+          const events = eventsAt(day, hour);
+          return <td key={day}>{events.length ? events.map((e, i) => <div key={i} className="print-event"><strong>{e.title}</strong><span>{e.start} – {e.end}</span>{couple && <small>{e.ownerName}</small>}</div>) : <span className="print-rest">Repos</span>}</td>;
+        })}</tr>)}</tbody></table>
+    </div>;
+  };
+
   const renderWeek = (interactive) => (
     <div className="week-frame" aria-label="Cadre du planning à sept jours">
     <div className="week">
@@ -576,7 +595,7 @@ export default function App() {
               if (paintTool === "move" && from && from !== d) setAtelierDayOrder(order => { const next=[...order]; const a=next.indexOf(from), b=next.indexOf(d); [next[a],next[b]]=[next[b],next[a]]; return next; });
               atelierDayDragRef.current = null;
             }}
-            style={{ position: "relative", overflow: "hidden", backgroundColor: style.bgColor }}>
+            style={{ position: "relative", overflow: "hidden", backgroundColor: style.dayColor || style.bgColor, borderColor: style.surfaceBorder || undefined }}>
             {dayImg && (
               <div
                 style={{
@@ -597,12 +616,6 @@ export default function App() {
                 const c = e.together
                   ? { bg: style.blockColor || "#f5f0ff", border: "#7c3aed" }
                   : style.blockColor ? { bg: style.blockColor, border: style.accent } : (COLORS[e.owner] || COLORS[0]);
-                const cardBg = c.bg || "#ffffff";
-                // Texte toujours lisible : calculé par contraste (luminance) sur
-                // le fond réel de la carte. Indépendant du thème Aurora/Sunset/
-                // Forêt ou d'une couleur personnalisée (blockColor) qui peut être
-                // claire alors que style.textColor est foncé, ou l'inverse.
-                const cardText = pickContrast(cardBg);
                 const warns = interactive && !e.together ? warningsFor(e.owner, e.evIndex) : [];
                 const canEdit = interactive && !e.fixed && !e.together;
                 return (
@@ -614,15 +627,14 @@ export default function App() {
                     onClick={canEdit ? () => startEdit(e.owner, e.evIndex) : undefined}
                     onDoubleClick={() => paintTool === "bucket" && setStyleKey({ blockColor: paintColor })}
                     style={{
-                      background: cardBg,
+                      background: c.bg,
                       borderLeft: `3px solid ${warns.length ? "#dc2626" : c.border}`,
                       opacity: e.fixed ? 0.85 : 1,
                       animationDelay: `${i * 90}ms`,
-                      color: cardText,
                     }}
                   >
-                    <strong style={{ color: cardText }}>{e.title}</strong>
-                    <span style={{ color: cardText, opacity: 0.85 }}>{e.start} – {e.end}</span>
+                    <strong style={{ color: style.textColor || "#151515" }}>{e.title}</strong>
+                    <span style={{ color: style.textColor || "#151515" }}>{e.start} – {e.end}</span>
                     {couple && (
                       <span className="owner">{e.together ? "Ensemble" : e.ownerName}</span>
                     )}
@@ -694,11 +706,12 @@ export default function App() {
   };
 
   return (
-    <div className="app">
+    <div className="app" data-planner-theme={style.theme || "aurora"}>
       <style>{css}</style>
 
       {cinematic && (
         <div className="cinematic no-print" role="status" aria-live="polite">
+          <button type="button" className="btn ghost cinematic-home" onClick={goHome}>← Retour à l'accueil</button>
           <div className="star-field">✦ · ✧ · ✦ · ⋆ · ✧ · ✦ · ⋆ · ✧ · ✦</div><div className="cinematic-orbit"><div className="cinematic-core">RUVY</div></div>
           <div className="cinematic-track"><span /></div>
           <div className="cinematic-copy">
@@ -732,6 +745,12 @@ export default function App() {
             </button>
           ))}
         </div>
+      )}
+
+      {step !== 0 && (
+        <nav className="home-nav no-print" aria-label="Navigation principale">
+          <button type="button" className="btn ghost home-button" onClick={goHome}>← Retour à l'accueil</button>
+        </nav>
       )}
 
       {/* ---------- ÉTAPE 1 : PROFIL ---------- */}
@@ -848,7 +867,21 @@ export default function App() {
       {step === 2 && (
         <section className="card">
           <h2>Ce que tu veux ajouter</h2>
-          <p className="hint">Chaque activité peut avoir ses propres réglages : nombre de séances, moments et jours préférés.</p>
+          <p className="hint">Chaque activité peut avoir ses propres réglages : nombre de séances et moments.</p>
+
+          <div className="row time-range-fields">
+            <label className="field">Première séance à
+              <select className="input" value={person.firstSessionHour} onChange={(e) => update({ firstSessionHour: Number(e.target.value) })}>
+                {Array.from({ length: 19 }, (_, i) => i + 5).map((h) => <option key={h} value={h}>{h}h</option>)}
+              </select>
+            </label>
+            <label className="field">Dernière séance finit à
+              <select className="input" value={person.lastSessionHour} onChange={(e) => update({ lastSessionHour: Number(e.target.value) })}>
+                {Array.from({ length: 19 }, (_, i) => i + 5).map((h) => <option key={h} value={h}>{h}h</option>)}
+              </select>
+            </label>
+            {Number(person.lastSessionHour) <= Number(person.firstSessionHour) && <span className="range-warning">La dernière heure doit être après la première.</span>}
+          </div>
 
           <div className="row">
             <input
@@ -919,51 +952,6 @@ export default function App() {
         </section>
       )}
 
-      {/* ---------- ÉTAPE 4 : PRÉFÉRENCES ---------- */}
-      {false && (
-        <section className="card">
-          <h2>Quels jours peut-on te proposer des séances ?</h2>
-          <p className="hint">Ces réglages s'appliquent à toutes tes activités (sauf si tu en as défini d'autres).</p>
-          <div className="chips">
-            {DAYS.map((d) => (
-              <button
-                key={d}
-                className={person.preferredDays.includes(d) ? "chip on" : "chip"}
-                onClick={() => toggleIn("preferredDays", d)}
-              >
-                {SHORT[d]}
-              </button>
-            ))}
-          </div>
-
-          <h2>À quel moment de la journée ?</h2>
-          <p className="hint">Tu peux en choisir plusieurs.</p>
-          <div className="chips">
-            {SLOTS.map((s) => (
-              <button
-                key={s.id}
-                className={person.preferredSlots.includes(s.id) ? "chip on" : "chip"}
-                onClick={() => toggleIn("preferredSlots", s.id)}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-
-          <h2>Entre quelles heures peut-on te proposer des séances ?</h2>
-          <p className="hint">Aucune séance ne sera placée en dehors de cette plage.</p>
-          <div className="row">
-            <label className="field">De
-              <input type="time" className="input" value={person.earliest} onChange={(e) => update({ earliest: e.target.value })} />
-            </label>
-            <label className="field">À
-              <input type="time" className="input" value={person.latest} onChange={(e) => update({ latest: e.target.value })} />
-            </label>
-          </div>
-          {error && <p className="error">{error}</p>}
-        </section>
-      )}
-
       {/* ---------- ÉTAPE 5 : PERSONNALISATION + RÉSULTAT ---------- */}
       {step === 4 && result && (
         <>
@@ -979,15 +967,15 @@ export default function App() {
               </div>
             </aside>
             <section className="editor-panel">
-              <div className="editor-panel-head"><div><span className="eyebrow">PERSONNALISATION</span><h2>{editorTab === "colors" ? "Donne-lui ta couleur" : editorTab === "stickers" ? "Ajoute ton énergie" : "Ajuste tes séances"}</h2></div><div className="editor-panel-actions no-print"><button type="button" className="link" onClick={handleReturnHome} title="Revenir à la page d'accueil">← Retour à l'accueil</button><span className="editor-status">● Sauvegardé</span></div></div>
+              <div className="editor-panel-head"><div><span className="eyebrow">PERSONNALISATION</span><h2>{editorTab === "colors" ? "Donne-lui ta couleur" : editorTab === "stickers" ? "Ajoute ton énergie" : "Ajuste tes séances"}</h2></div><span className="editor-status">● Sauvegardé</span></div>
               {editorTab === "colors" && <div className="control-grid">
                 <label className="label">Titre du planning<input className="input full" value={style.title} onChange={(e) => setStyleKey({ title: e.target.value })} /></label>
-                <div className="color-grid"><label className="field">Fond<input type="color" className="color" value={style.bgColor} onChange={(e) => setStyleKey({ bgColor: e.target.value })} /></label><label className="field">Accent<input type="color" className="color" value={style.accent} onChange={(e) => setStyleKey({ accent: e.target.value })} /></label><label className="field">Texte<input type="color" className="color" value={style.textColor || "#151515"} onChange={(e) => setStyleKey({ textColor: e.target.value })} /></label></div>
-                <div><label className="label">Thèmes prêts à l'emploi</label><div className="theme-row"><button className="theme theme-aurora" onClick={() => applyTheme({ bgColor: "#101026", accent: "#a78bfa", textColor: "#f5f3ff" })}>Aurora</button><button className="theme theme-sunset" onClick={() => applyTheme({ bgColor: "#fff7ed", accent: "#ea580c", textColor: "#431407" })}>Sunset</button><button className="theme theme-forest" onClick={() => applyTheme({ bgColor: "#f2f8f4", accent: "#14532d", textColor: "#163324" })}>Forêt</button></div></div>
+                <div className="color-grid"><label className="field">Fond<input type="color" className="color" value={style.bgColor} onChange={(e) => setStyleKey({ bgColor: e.target.value, background: "", dayColor: e.target.value })} /></label><label className="field">Accent<input type="color" className="color" value={style.accent} onChange={(e) => setStyleKey({ accent: e.target.value })} /></label><label className="field">Texte<input type="color" className="color" value={style.textColor || "#151515"} onChange={(e) => setStyleKey({ textColor: e.target.value })} /></label></div>
+                <div><label className="label">Thèmes prêts à l'emploi</label><div className="theme-row"><button className="theme theme-aurora" aria-pressed={style.theme === "aurora"} onClick={() => applyTheme({ theme: "aurora", bgColor: "#101026", accent: "#a78bfa", textColor: "#f5f3ff" })}>Aurora</button><button className="theme theme-sunset" aria-pressed={style.theme === "sunset"} onClick={() => applyTheme({ theme: "sunset", bgColor: "#fff1e6", background: "linear-gradient(135deg, #fff7ed 0%, #ffe2c5 55%, #f8c9ac 100%)", accent: "#b64018", textColor: "#382219", blockColor: "#f8d6bd", dayColor: "rgba(255,250,246,.88)", surfaceColor: "#fffaf6", surfaceBorder: "#f1c5a7", softSurface: "#ffefe2" })}>Sunset</button><button className="theme theme-forest" aria-pressed={style.theme === "forest"} onClick={() => applyTheme({ theme: "forest", bgColor: "#e7f3e9", background: "linear-gradient(135deg, #eff8ef 0%, #d9eedc 52%, #c5e3cc 100%)", accent: "#176b45", textColor: "#153b2a", blockColor: "#d4ead8", dayColor: "rgba(247,255,248,.9)", surfaceColor: "#f8fff9", surfaceBorder: "#b8d8c3", softSurface: "#eaf6ec" })}>Forêt</button></div></div>
                 <label className="label">Arrière-plan <input type="file" accept="image/*" onChange={onBgImage} /></label>{style.bgImage && <><button className="link" onClick={() => setStyleKey({ bgImage: "" })}>Retirer l'image</button><label className="field slider">Transparence : {Math.round(style.bgOpacity * 100)} %<input type="range" min="0" max="1" step="0.05" value={style.bgOpacity} onChange={(e) => setStyleKey({ bgOpacity: Number(e.target.value) })} /></label></>}
               </div>}
-              {editorTab === "paint" && <div className="control-grid"><p className="hint">Dessine directement sur le planning. Le pot colore la zone ciblée, la pipette reprend une couleur, et les personnalisations restent en mémoire uniquement pendant cette session.</p><div className="paint-tools"><button className={paintTool === "move" ? "paint-tool active" : "paint-tool"} onClick={() => selectPaintTool("move")}>↖<small>Clic normal</small></button>{[["pen","✎","Stylo"],["bucket","▧","Pot"],["eraser","⌫","Gomme"],["picker","⌾","Pipette"],["marker","▰","Surligneur"]].map(([id,icon,label]) => <button key={id} className={paintTool===id ? "paint-tool active" : "paint-tool"} onClick={() => selectPaintTool(id)}>{icon}<small>{label}</small></button>)}</div><label className="label">Épaisseur : {paintSize}px<input type="range" min="2" max="32" value={paintSize} onChange={(e) => setPaintSize(Number(e.target.value))} /></label><label className="label">Couleur<input type="color" className="color" value={paintColor} onChange={(e) => setPaintColor(e.target.value)} /></label><div className="paint-actions"><button className="theme" onClick={undoPaint}>↶ Annuler</button><button className="theme" onClick={redoPaint}>↷ Rétablir</button></div><label className="label">Fond du planning<select className="input" value={paintBackground} onChange={(e) => { setPaintBackground(e.target.value); setStyleKey({ bgColor: e.target.value }); }}><option value="#18132c">Violet profond</option><option value="#25143d">Prune</option><option value="#172554">Bleu nuit</option><option value="#1f2937">Ardoise</option></select></label></div>}
-              {editorTab === "stickers" && <div className="control-grid"><p className="hint">Choisis un signe distinctif, puis ajoute des images par jour comme arrière-plan ou logo.</p><div className="sticker-palette">{["🔥","⚡","🏋️","🥊","🏃","🧘","🚴","🏆","💪","🌙"].map((x) => <button key={x} className="sticker-btn" onClick={() => addSticker(x)}>{x}</button>)}</div><label className="label">Images / logos par jour</label><div className="day-images">{DAYS.map((d) => <div key={d} className="day-image-row"><span>{SHORT[d]}</span><input type="file" accept="image/*" onChange={(e) => onDayImage(d, e)} />{style.dayImages[d] && <button className="link" onClick={() => removeDayImage(d)}>Retirer</button>}</div>)}</div>{Object.keys(style.dayImages).length > 0 && <label className="field slider">Transparence : {Math.round(style.dayImageOpacity * 100)} %<input type="range" min="0" max="1" step="0.05" value={style.dayImageOpacity} onChange={(e) => setStyleKey({ dayImageOpacity: Number(e.target.value) })} /></label>}<div className="sticker-list">{(style.stickers || []).map((s, i) => <button key={i} className="sticker-chip" onClick={() => removeSticker(i)}>{s.emoji} <small>retirer</small></button>)}</div></div>}
+              {editorTab === "paint" && <div className="control-grid"><p className="hint">Dessine directement sur le planning. Le pot colore la zone ciblée, la pipette reprend une couleur, et les personnalisations restent en mémoire uniquement pendant cette session.</p><div className="paint-tools"><button className={paintTool === "move" ? "paint-tool active" : "paint-tool"} onClick={() => selectPaintTool("move")}>↖<small>Clic normal</small></button>{[["pen","✎","Stylo"],["bucket","▧","Pot"],["eraser","⌫","Gomme"],["picker","⌾","Pipette"],["marker","▰","Surligneur"]].map(([id,icon,label]) => <button key={id} className={paintTool===id ? "paint-tool active" : "paint-tool"} onClick={() => selectPaintTool(id)}>{icon}<small>{label}</small></button>)}</div><label className="label">Épaisseur : {paintSize}px<input type="range" min="2" max="32" value={paintSize} onChange={(e) => setPaintSize(Number(e.target.value))} /></label><label className="label">Couleur<input type="color" className="color" value={paintColor} onChange={(e) => setPaintColor(e.target.value)} /></label><div className="paint-actions"><button className="theme" onClick={undoPaint}>↶ Annuler</button><button className="theme" onClick={redoPaint}>↷ Rétablir</button></div><label className="label">Fond du planning<select className="input" value={paintBackground} onChange={(e) => { setPaintBackground(e.target.value); setStyleKey({ bgColor: e.target.value, background: "", dayColor: e.target.value }); }}><option value="#18132c">Violet profond</option><option value="#25143d">Prune</option><option value="#172554">Bleu nuit</option><option value="#1f2937">Ardoise</option></select></label></div>}
+              {editorTab === "stickers" && <div className="control-grid"><p className="hint">Choisis un signe distinctif, puis ajoute des images par jour comme arrière-plan ou logo.</p><div className="sticker-palette">{["🔥","⚡","🏋️","🥊","🏃","🧘","🚴","🏆","💪","🌙"].map((x) => <button key={x} className="sticker-btn" onClick={() => addSticker(x)}>{x}</button>)}</div><label className="label">Images / logos par jour</label><div className="day-images">{DAYS.map((d) => <div key={d} className="day-image-row"><span>{SHORT[d]}</span><input type="file" accept="image/*" onChange={(e) => onDayImage(d, e)} />{style.dayImages[d] && <img src={style.dayImages[d]} alt={`Miniature ${SHORT[d]}`} />}{style.dayImages[d] && <button className="link" onClick={() => removeDayImage(d)}>Retirer</button>}</div>)}</div>{Object.keys(style.dayImages).length > 0 && <label className="field slider">Transparence : {Math.round(style.dayImageOpacity * 100)} %<input type="range" min="0" max="1" step="0.05" value={style.dayImageOpacity} onChange={(e) => setStyleKey({ dayImageOpacity: Number(e.target.value) })} /></label>}<div className="sticker-list">{(style.stickers || []).map((s, i) => <button key={i} className="sticker-chip" onClick={() => removeSticker(i)}>{s.emoji} <small>retirer</small></button>)}</div></div>}
               {editorTab === "edit" && <div className="control-grid"><p className="hint">Clique sur une séance ajoutée dans le planning pour modifier son jour, ses horaires ou la supprimer.</p>{renderEditor()}<p className="warn-text editor-warning">⚠ Les séances ajoutées peuvent être décalées de 30 minutes maximum. Les avertissements restent sans blocage.</p></div>}
             </section>
           </div>
@@ -997,7 +985,7 @@ export default function App() {
             <div
               ref={exportRef}
               className="export-zone"
-              style={{ "--atelier-event-bg": style.blockColor || "transparent", background: style.bgColor, color: style.textColor || "#151515", borderColor: style.accent, position: "relative", overflow: "hidden" }}
+              style={{ "--atelier-event-bg": style.blockColor || "transparent", background: style.background || style.bgColor, color: style.textColor || "#151515", borderColor: style.accent, position: "relative", overflow: "hidden" }}
             >
               <canvas ref={paintCanvasRef} className="paint-canvas" style={{ pointerEvents: ["pen", "marker", "eraser", "bucket", "picker"].includes(paintTool) ? "auto" : "none" }} onPointerDown={(e) => { e.preventDefault(); handlePaintPointer(e); }} onMouseDown={(e) => e.preventDefault()} onPointerMove={(e) => { e.preventDefault(); paintDrawingRef.current && paintPoint(e); }} onPointerUp={endPaint} onPointerCancel={endPaint} aria-label="Dessin par-dessus le planning" />
               {style.bgImage && (
@@ -1041,14 +1029,8 @@ export default function App() {
                   </div>
                 )}
 
-                {result.plans.map((p, i) => (
-                  <p key={i} className="hint">
-                    {p.name} : {p.sessionsAdded} séance(s) ajoutée(s) sur {p.sessionsTarget} prévue(s).
-                    {p.restDay ? ` Repos : ${p.restDay}.` : ""}
-                  </p>
-                ))}
-
                 {renderWeek(!exporting)}
+                {renderPrintGrid()}
 
                 {couple && result.commonSlots?.length > 0 && (
                   <div className="common">
@@ -1074,6 +1056,7 @@ export default function App() {
             <div className="row no-print end">
               <button className="btn ghost" onClick={restart}>Recommencer</button>
               <button className="btn ghost" onClick={() => setStep(0)}>← Modifier mes infos</button>
+              <button className="btn ghost" onClick={() => setPrintPreview(true)}>Aperçu</button>
               <button className="btn ghost" onClick={() => window.print()}>🖨️ Imprimer / Télécharger</button>
               <button className="btn ghost" disabled={exporting} onClick={exportPNG}>
                 {exporting ? "Export..." : "Export PNG"}
@@ -1096,6 +1079,12 @@ export default function App() {
             {step === 2 ? (loading ? "Génération..." : "Générer le planning") : "Suivant"}
           </button>
         </footer>
+      )}
+
+      {printPreview && (
+        <div className="print-preview-overlay no-print" role="dialog" aria-modal="true" aria-label="Aperçu du planning">
+          <div className="print-preview-modal"><button className="btn ghost print-preview-home" onClick={goHome}>← Retour à l'accueil</button><button className="btn ghost print-preview-close" onClick={() => setPrintPreview(false)}>Fermer</button>{renderPrintGrid()}</div>
+        </div>
       )}
     </div>
   );
@@ -1163,7 +1152,10 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .week { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-top: 8px; }
 .day { border: 1px solid #ececE8; border-radius: 12px; padding: 12px; min-height: 120px; background: rgba(255,255,255,.6); }
 .day h3 { font-size: 13px; margin: 0 0 8px; color: #151515; font-weight: 600; }
-.rest { font-size: 12px; color: #b0b0b0; }
+.rest { font-size: 12px; color: rgba(255,255,255,.82); background: rgba(167,139,250,.16); border: 1px solid rgba(167,139,250,.32); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-radius: 8px; padding: 8px; }
+.day-images { display:flex; flex-direction:column; gap:8px; margin-top:4px; }.day-image-row { display:grid; grid-template-columns:72px minmax(0,1fr) auto; align-items:center; gap:10px; }.day-image-row > span { font-weight:600; color:#dcd6f2; }.day-image-row input[type=file] { min-width:0; width:100%; }.day-image-row::after { content:""; }.day-image-row img { width:34px; height:34px; object-fit:cover; border-radius:7px; border:1px solid #66538d; }
+.time-range-fields { align-items: flex-end; margin: 12px 0 18px; }.range-warning { color: #dc2626; font-size: 12px; padding-bottom: 11px; }
+.print-grid-wrap { display:none; }.print-title { color: var(--print-accent, #7c3aed); margin: 0 0 10px; }.print-grid { width:100%; border-collapse:collapse; table-layout:fixed; font-size:10px; }.print-grid th,.print-grid td { border:1px solid color-mix(in srgb, var(--print-accent, #7c3aed) 35%, transparent); padding:4px; vertical-align:top; }.print-grid thead th { background: color-mix(in srgb, var(--print-accent, #7c3aed) 18%, transparent); }.print-grid tbody th { width:42px; text-align:center; }.print-event { background: color-mix(in srgb, var(--print-accent, #7c3aed) 16%, transparent); border-left:2px solid var(--print-accent, #7c3aed); padding:3px; margin:1px 0; display:flex; flex-direction:column; }.print-event span,.print-event small { font-size:9px; }.print-rest { color:#777; font-style:italic; }.print-preview-overlay { position:fixed; inset:0; z-index:100; display:grid; place-items:center; padding:24px; background:rgba(9,8,18,.72); }.print-preview-modal { position:relative; width:min(1100px,96vw); max-height:92vh; overflow:auto; padding:28px; border-radius:18px; background:#fff; color:#151515; box-shadow:0 25px 80px rgba(0,0,0,.4); }.print-preview-modal .print-grid-wrap { display:block; }.print-preview-close { position:absolute; top:12px; right:12px; z-index:1; }
 .event { padding: 8px; border-radius: 8px; margin-bottom: 6px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
 .event.editable { cursor: pointer; }
 .event.editable:hover { box-shadow: 0 0 0 2px rgba(20,83,45,.25); }
@@ -1213,7 +1205,13 @@ html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff;
 @media (max-width: 1050px) { .editor-workspace { grid-template-columns:180px minmax(260px,1fr) minmax(320px,1fr); gap:12px; } }
 @media (max-width: 760px) { .editor-workspace { display:block; } .editor-workspace .editor-sidebar, .editor-workspace .editor-panel, .editor-workspace .plan-card { position:static; } .editor-workspace .editor-layout { display:block; } .editor-workspace .plan-card { margin-top:14px; } }
 
-@media print { .editor-layout, .no-print { display:none !important; } .plan-card { border:0; box-shadow:none; } }
+@media print {
+  @page { size: A4 landscape; margin: 8mm; }
+  .editor-layout, .no-print, .week-frame, .plan-card .export-zone, .plan-card > .editor, .plan-card > .hint { display:none !important; }
+  body, .app, .editor-workspace, .editor-workspace .plan-card { background:#fff !important; color:#151515 !important; }
+  .app { max-width:none; padding:0; }.editor-workspace { display:block; }.editor-workspace .plan-card { display:block; border:0; box-shadow:none; margin:0; padding:0; }
+  .print-grid-wrap { --print-accent: var(--atelier-event-bg, #7c3aed); display:block !important; color:#151515; }.print-grid-wrap .print-title { color: var(--print-accent); }
+}
 
 .paint-canvas { position:absolute; inset:0; width:100%; height:100%; z-index:8; touch-action:none; cursor:crosshair; }
 .paint-tools { display:grid; grid-template-columns:repeat(3, minmax(70px,1fr)); gap:8px; }
@@ -1234,4 +1232,65 @@ html.editor-active, html.editor-active body { background:#0b0816; color:#f5f3ff;
 .week-frame .day:active { cursor:grabbing; }
 .paint-canvas { user-select:none; -webkit-user-select:none; touch-action:none; }
 @media (max-width:680px) { .week-frame .week { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+
+/* Retour à l'accueil : bouton accessible au toucher et à la souris. */
+.home-nav { display:flex; justify-content:flex-start; margin:0 0 16px; }
+.home-button { min-height:44px; }
+
+/* Thèmes préparés non-Aurora : mêmes couleurs sur l'atelier, ses cartes et ses contrôles. */
+.app[data-planner-theme="sunset"] { --planner-text:#382219; --planner-muted:#70574a; --planner-accent:#b64018; --planner-surface:#fffaf6; --planner-border:#f1c5a7; --planner-soft:#ffefe2; }
+.app[data-planner-theme="forest"] { --planner-text:#153b2a; --planner-muted:#496b57; --planner-accent:#176b45; --planner-surface:#f8fff9; --planner-border:#b8d8c3; --planner-soft:#eaf6ec; }
+html[data-planner-theme="sunset"], html[data-planner-theme="sunset"] body { min-height:100%; background:linear-gradient(135deg,#fff7ed 0%,#ffe2c5 55%,#f8c9ac 100%) fixed; color:#382219; }
+html[data-planner-theme="forest"], html[data-planner-theme="forest"] body { min-height:100%; background:linear-gradient(135deg,#eff8ef 0%,#d9eedc 52%,#c5e3cc 100%) fixed; color:#153b2a; }
+.app[data-planner-theme="sunset"] .home-button, .app[data-planner-theme="forest"] .home-button { color:var(--planner-text); background:var(--planner-surface); border-color:var(--planner-border); }
+.app[data-planner-theme="sunset"] .editor-workspace .editor-sidebar { background:linear-gradient(140deg,#79371e,#a84c28); border:1px solid #9e4826; border-radius:18px; padding:18px 12px; }
+.app[data-planner-theme="forest"] .editor-workspace .editor-sidebar { background:linear-gradient(140deg,#164b36,#28704d); border:1px solid #286749; border-radius:18px; padding:18px 12px; }
+.app[data-planner-theme="sunset"] .editor-workspace .editor-layout { background:linear-gradient(140deg,#79371e,#a84c28); color:#fff8f2; box-shadow:0 22px 58px rgba(103,48,22,.2); }
+.app[data-planner-theme="forest"] .editor-workspace .editor-layout { background:linear-gradient(140deg,#164b36,#28704d); color:#f3fff5; box-shadow:0 22px 58px rgba(25,82,53,.2); }
+.app[data-planner-theme="sunset"] .editor-sidebar strong, .app[data-planner-theme="sunset"] .editor-sidebar .editor-brand { color:#fff8f2; }
+.app[data-planner-theme="forest"] .editor-sidebar strong, .app[data-planner-theme="forest"] .editor-sidebar .editor-brand { color:#f3fff5; }
+.app[data-planner-theme="sunset"] .editor-workspace .editor-panel, .app[data-planner-theme="sunset"] .editor-workspace .plan-card { background:var(--planner-surface); border-color:var(--planner-border); color:var(--planner-text); }
+.app[data-planner-theme="forest"] .editor-workspace .editor-panel, .app[data-planner-theme="forest"] .editor-workspace .plan-card { background:var(--planner-surface); border-color:var(--planner-border); color:var(--planner-text); }
+.app[data-planner-theme="sunset"] .editor-panel h2, .app[data-planner-theme="sunset"] .editor-panel .label, .app[data-planner-theme="sunset"] .editor-panel .hint, .app[data-planner-theme="sunset"] .editor-panel .field, .app[data-planner-theme="sunset"] .editor-tab { color:#493126; }
+.app[data-planner-theme="forest"] .editor-panel h2, .app[data-planner-theme="forest"] .editor-panel .label, .app[data-planner-theme="forest"] .editor-panel .hint, .app[data-planner-theme="forest"] .editor-panel .field, .app[data-planner-theme="forest"] .editor-tab { color:#214b35; }
+.app[data-planner-theme="sunset"] .editor-panel .eyebrow { color:#8d421e; }
+.app[data-planner-theme="forest"] .editor-panel .eyebrow { color:#176b45; }
+.app[data-planner-theme="sunset"] .editor-panel .editor-status { color:#216744; }
+.app[data-planner-theme="forest"] .editor-panel .editor-status { color:#176b45; }
+.app[data-planner-theme="sunset"] .editor-workspace .sticker-chip { color:#71351f; background:#fff4eb; border-color:#ddb394; }
+.app[data-planner-theme="forest"] .editor-workspace .sticker-chip { color:#205239; background:#eff8f0; border-color:#a9cbb4; }
+.app[data-planner-theme="sunset"] .editor-tab.active { color:#fff; background:#b64018; box-shadow:inset 3px 0 #7c2d12; }
+.app[data-planner-theme="forest"] .editor-tab.active { color:#fff; background:#176b45; box-shadow:inset 3px 0 #104b31; }
+.app[data-planner-theme="sunset"] .editor-panel .input, .app[data-planner-theme="sunset"] .editor-panel .color { background:#fff; border-color:#ddb394; color:#382219; }
+.app[data-planner-theme="forest"] .editor-panel .input, .app[data-planner-theme="forest"] .editor-panel .color { background:#fff; border-color:#a9cbb4; color:#153b2a; }
+.app[data-planner-theme="sunset"] .editor-workspace .plan-card .day { background-color:rgba(255,250,246,.88); border-color:#f1c5a7; }
+.app[data-planner-theme="forest"] .editor-workspace .plan-card .day { background-color:rgba(247,255,248,.9); border-color:#b8d8c3; }
+.app[data-planner-theme="sunset"] .editor-workspace .plan-card .day h3, .app[data-planner-theme="sunset"] .editor-workspace .plan-card .legend-item, .app[data-planner-theme="sunset"] .editor-workspace .plan-card .event, .app[data-planner-theme="sunset"] .editor-workspace .plan-card .event span, .app[data-planner-theme="sunset"] .editor-workspace .plan-card .hint, .app[data-planner-theme="sunset"] .editor-workspace .plan-card .list li { color:#382219; }
+.app[data-planner-theme="forest"] .editor-workspace .plan-card .day h3, .app[data-planner-theme="forest"] .editor-workspace .plan-card .legend-item, .app[data-planner-theme="forest"] .editor-workspace .plan-card .event, .app[data-planner-theme="forest"] .editor-workspace .plan-card .event span, .app[data-planner-theme="forest"] .editor-workspace .plan-card .hint, .app[data-planner-theme="forest"] .editor-workspace .plan-card .list li { color:#153b2a; }
+.app[data-planner-theme="sunset"] .editor-workspace .plan-card .rest { color:#60321f; background:#ffe7d5; border-color:#edc09e; }
+.app[data-planner-theme="forest"] .editor-workspace .plan-card .rest { color:#205239; background:#e0f1e3; border-color:#afd1b8; }
+.app[data-planner-theme="sunset"] .editor-workspace .plan-card .badge-ia { color:#7c2d12; background:#ffead9; }
+.app[data-planner-theme="forest"] .editor-workspace .plan-card .badge-ia { color:#155b3a; background:#e0f2e4; }
+.app[data-planner-theme="sunset"] .editor-workspace .plan-card .list li, .app[data-planner-theme="sunset"] .editor-workspace .plan-card .want-card { background:#fff4eb; border-color:#f1c5a7; }
+.app[data-planner-theme="forest"] .editor-workspace .plan-card .list li, .app[data-planner-theme="forest"] .editor-workspace .plan-card .want-card { background:#eff8f0; border-color:#b8d8c3; }
+.app[data-planner-theme="sunset"] .editor-workspace .plan-card .list small { color:#70574a; }
+.app[data-planner-theme="forest"] .editor-workspace .plan-card .list small { color:#496b57; }
+.app[data-planner-theme="sunset"] .editor-workspace .btn:not(.theme-sunset):not(.theme-forest):not(.theme-aurora) { color:#fff; background:#b64018; border-color:#b64018; }
+.app[data-planner-theme="forest"] .editor-workspace .btn:not(.theme-sunset):not(.theme-forest):not(.theme-aurora) { color:#fff; background:#176b45; border-color:#176b45; }
+.app[data-planner-theme="sunset"] .editor-workspace .btn.ghost { color:#71351f; background:#fffaf6; border-color:#ddb394; }
+.app[data-planner-theme="forest"] .editor-workspace .btn.ghost { color:#205239; background:#f8fff9; border-color:#a9cbb4; }
+.app[data-planner-theme="sunset"] .editor-workspace .theme:not(.theme-sunset):not(.theme-forest):not(.theme-aurora) { color:#71351f; background:#fff4eb; border-color:#ddb394; }
+.app[data-planner-theme="forest"] .editor-workspace .theme:not(.theme-sunset):not(.theme-forest):not(.theme-aurora) { color:#205239; background:#eff8f0; border-color:#a9cbb4; }
+.app[data-planner-theme="sunset"] .editor-workspace .paint-tool, .app[data-planner-theme="sunset"] .editor-workspace .sticker-btn { color:#71351f; background:#fff4eb; border-color:#ddb394; }
+.app[data-planner-theme="forest"] .editor-workspace .paint-tool, .app[data-planner-theme="forest"] .editor-workspace .sticker-btn { color:#205239; background:#eff8f0; border-color:#a9cbb4; }
+.app[data-planner-theme="sunset"] .editor-workspace .paint-tool small, .app[data-planner-theme="sunset"] .editor-workspace .sticker-chip small { color:#70574a; }
+.app[data-planner-theme="forest"] .editor-workspace .paint-tool small, .app[data-planner-theme="forest"] .editor-workspace .sticker-chip small { color:#496b57; }
+.app[data-planner-theme="sunset"] .editor-workspace .paint-tool.active { color:#fff; background:#b64018; border-color:#9a3516; }
+.app[data-planner-theme="forest"] .editor-workspace .paint-tool.active { color:#fff; background:#176b45; border-color:#12583a; }
+.app[data-planner-theme="sunset"] .editor-workspace .link { color:#8d421e; }
+.app[data-planner-theme="forest"] .editor-workspace .link { color:#176b45; }
+.cinematic-home { position:fixed; z-index:2; top:max(16px,env(safe-area-inset-top)); left:max(16px,env(safe-area-inset-left)); min-height:44px; }
+.print-preview-home { position:absolute; top:12px; left:12px; z-index:1; min-height:44px; }
+@media (max-width:680px) { .home-nav { margin-bottom:12px; } .home-button { width:100%; min-height:46px; } .print-preview-modal { padding:72px 14px 20px; } .print-preview-home { top:14px; left:14px; } .print-preview-close { top:14px; right:14px; } }
+
 `;
