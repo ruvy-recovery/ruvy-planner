@@ -1357,4 +1357,110 @@ html.editor-active .app {
   .editor-tab { font-size: 12px; }
 }
 
+/* Palette fixe de l’Atelier — portée uniquement par la vue personnalisateur. */
+html.editor-active, html.editor-active body {
+  background: #0F172A !important;
+  color: #F1F5F9;
+}
+html.editor-active .app {
+  padding: 0;
+  background: #0F172A;
+  color: #F1F5F9;
+}
+.editor-workspace {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
+  min-height: 100vh;
+  margin: 0;
+  padding: 32px clamp(16px, 2.4vw, 36px) 48px;
+  border-radius: 0;
+  background: #0F172A;
+  color: #F1F5F9;
+}
+.editor-workspace .editor-sidebar {
+  box-sizing: border-box;
+  background: #1E293B;
+  border: 1px solid #334155;
+}
+.editor-workspace .editor-brand strong,
+.editor-workspace .editor-panel h2,
+.editor-workspace .editor-panel .label,
+.editor-workspace .editor-panel .field,
+.editor-workspace .editor-panel .field label {
+  color: #F1F5F9;
+}
+.editor-workspace .editor-brand small,
+.editor-workspace .editor-panel .hint,
+.editor-workspace .editor-panel .eyebrow,
+.editor-workspace .editor-panel .editor-status,
+.editor-workspace .editor-panel .label em,
+.editor-workspace .editor-sidebar .editor-tab:not(.active) {
+  color: #94A3B8;
+}
+.editor-workspace .editor-sidebar .editor-tab.active {
+  color: #fff;
+  background: rgba(139, 92, 246, 0.18);
+  box-shadow: inset 3px 0 #8B5CF6;
+}
+.editor-workspace .editor-sidebar .editor-tab:not(.active):hover {
+  color: #F1F5F9;
+  background: rgba(148, 163, 184, 0.10);
+}
+.editor-workspace .editor-panel {
+  background: #1E293B;
+  border: 1px solid #334155;
+  color: #F1F5F9;
+}
+.editor-workspace .editor-panel .input,
+.editor-workspace .editor-panel input[type="file"] {
+  background: #0F172A;
+  border-color: #334155;
+  color: #F1F5F9;
+}
+.editor-workspace .editor-panel .input:focus {
+  border-color: #8B5CF6;
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
+}
+.editor-workspace .editor-panel .color {
+  background: #0F172A;
+  border-color: #334155;
+}
+.editor-workspace .editor-panel input[type="file"]::file-selector-button {
+  background: #8B5CF6;
+  color: #fff;
+}
+.editor-workspace .plan-card {
+  background: #0F172A;
+  border-color: #334155;
+  color: #F1F5F9;
+}
+@media (max-width: 760px) {
+  .editor-workspace {
+    min-height: 100vh;
+    padding: 22px 12px 40px;
+    border-radius: 0;
+  }
+}
+@media print {
+  html.editor-active, html.editor-active body {
+    background: #fff !important;
+    color: #151515 !important;
+  }
+  html.editor-active .app,
+  .editor-workspace {
+    background: transparent !important;
+  }
+  .editor-workspace .editor-sidebar,
+  .editor-workspace .editor-panel {
+    display: none !important;
+  }
+  .editor-workspace .plan-card {
+    background: transparent !important;
+    border-color: transparent !important;
+    color: inherit !important;
+  }
+}
+
+
 `;
