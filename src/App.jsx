@@ -1303,4 +1303,84 @@ html.editor-active, html.editor-active body { background:#f7f7f5; color:#151515;
 .print-preview-home { position:absolute; top:12px; left:12px; z-index:1; min-height:44px; }
 @media (max-width:680px) { .profile-heading { align-items:stretch; flex-direction:column; } .home-button { width:100%; min-height:46px; } .print-preview-modal { padding:72px 14px 20px; } .print-preview-home { top:14px; left:14px; } .print-preview-close { top:14px; right:14px; } }
 
+
+/* Ajustements ciblés de la mise en page de l’Atelier uniquement. */
+html.editor-active .app {
+  width: 100%;
+  max-width: none;
+  margin: 0 auto;
+  padding: 32px clamp(16px, 2.4vw, 36px) 64px;
+  box-sizing: border-box;
+}
+.editor-workspace {
+  width: 100%;
+  max-width: 1500px;
+  margin: 0 auto;
+  grid-template-columns: 220px minmax(320px, .9fr) minmax(440px, 1.2fr);
+  gap: 18px;
+  align-items: start;
+}
+.editor-workspace .editor-sidebar,
+.editor-workspace .editor-panel,
+.editor-workspace .plan-card {
+  position: static;
+  min-width: 0;
+  align-self: start;
+}
+.editor-workspace .editor-sidebar {
+  padding: 16px 12px;
+  border-radius: 18px;
+}
+.editor-brand { gap: 10px; align-items: center; margin: 0 0 22px; }
+.editor-brand > span { flex: 0 0 34px; }
+.editor-brand > div { min-width: 0; }
+.editor-brand strong { line-height: 1.2; }
+.editor-brand small { line-height: 1.25; margin-top: 4px; }
+.editor-tabs { min-width: 0; }
+.editor-tab { min-width: 0; gap: 8px; padding: 11px 8px; font-size: 13px; }
+.editor-tab > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editor-workspace .editor-sidebar .editor-tab:not(.active) { color: rgba(255,255,255,.78); }
+.editor-workspace .editor-sidebar .editor-tab:not(.active):hover,
+.app[data-planner-theme="forest"] .editor-workspace .editor-sidebar .editor-tab:not(.active):hover,
+.app[data-planner-theme="sunset"] .editor-workspace .editor-sidebar .editor-tab:not(.active):hover {
+  color: #fff;
+  background: rgba(255,255,255,.12);
+}
+.editor-workspace .editor-panel { padding: 20px; }
+.editor-workspace .editor-panel .control-grid { min-width: 0; }
+.editor-workspace .editor-panel .label { min-width: 0; }
+.editor-workspace .editor-panel .input,
+.editor-workspace .editor-panel input[type="file"] {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+.editor-workspace .editor-panel input[type="file"] {
+  padding: 6px;
+  font-size: 12px;
+}
+.editor-workspace .editor-panel input[type="file"]::file-selector-button {
+  max-width: 100%;
+  margin-right: 6px;
+  padding: 6px 9px;
+  font-size: 12px;
+}
+.editor-workspace .plan-card { margin: 0; }
+@media (max-width: 1050px) and (min-width: 761px) {
+  .editor-workspace { grid-template-columns: 190px minmax(270px, .9fr) minmax(340px, 1.1fr); gap: 14px; }
+  .editor-workspace .editor-panel { padding: 16px; }
+}
+@media (max-width: 760px) {
+  html.editor-active .app { padding: 26px 12px 54px; }
+  .editor-workspace { display: block; }
+  .editor-workspace .editor-sidebar,
+  .editor-workspace .editor-panel,
+  .editor-workspace .plan-card { position: static; }
+  .editor-workspace .editor-sidebar { margin-bottom: 10px; }
+  .editor-workspace .editor-layout { display: block; }
+  .editor-workspace .plan-card { margin-top: 14px; }
+  .editor-tab { font-size: 12px; }
+}
+
 `;
