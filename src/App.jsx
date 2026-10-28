@@ -93,6 +93,25 @@ const defaultStyle = {
   stickers: [],
 };
 
+// Les anciennes versions stockaient parfois une position libre sur les séances.
+// On la retire à l’hydratation afin que la grille reste la seule source de placement.
+function withoutEventCoordinates(result) {
+  if (!result || !Array.isArray(result.plans)) return result;
+  return {
+    ...result,
+    plans: result.plans.map((plan) => ({
+      ...plan,
+      events: Array.isArray(plan.events)
+        ? plan.events.map((event) => {
+            if (!event || typeof event !== "object") return event;
+            const { x, y, ...scheduledEvent } = event;
+            return scheduledEvent;
+          })
+        : plan.events,
+    })),
+  };
+}
+
 function loadSaved() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -108,6 +127,7 @@ function loadSaved() {
         return { ...emptyPerson(clean.name || "Toi"), ...clean, firstSessionHour: hour(clean.firstSessionHour, 6), lastSessionHour: hour(clean.lastSessionHour, 22) };
       });
     }
+    saved.result = withoutEventCoordinates(saved.result);
     return saved;
   } catch {
     return null;
@@ -143,7 +163,6 @@ export default function App() {
   const [paintBackground, setPaintBackground] = useState("#18132c");
   const [paintHistory, setPaintHistory] = useState([]);
   const [paintFuture, setPaintFuture] = useState([]);
-  const [draggingEvent, setDraggingEvent] = useState(null);
   const [selectedSticker, setSelectedSticker] = useState(null);
   const stickerDragRef = useRef(null);
   const [atelierDayOrder, setAtelierDayOrder] = useState(DAYS);
@@ -258,7 +277,7 @@ export default function App() {
       });
       if (!r.ok) throw new Error("Erreur serveur");
       const data = await r.json();
-      setResult(data);
+      setResult(withoutEventCoordinates(data));
       setStep(4);
       setActive(0);
       setEditing(null);
@@ -377,18 +396,48 @@ export default function App() {
   const updateSticker = (index, patch) => setStyleKey({ stickers: (style.stickers || []).map((s, i) => i === index ? { ...s, ...patch } : s) });
   const startStickerDrag = (e, index, resize = false) => {
     e.stopPropagation(); e.preventDefault();
+    if (e.button != null && e.button !== 0) return;
     const frame = e.currentTarget.closest(".export-zone"); if (!frame) return;
+    const stickerEl = e.currentTarget.closest(".floating-sticker");
     const rect = frame.getBoundingClientRect(); const sticker = style.stickers[index];
-    stickerDragRef.current = { index, resize, rect, startX: e.clientX, startY: e.clientY, startSize: sticker.size || 28, startXPos: sticker.x, startYPos: sticker.y };
+    const stickerRect = stickerEl?.getBoundingClientRect();
+    const scaleX = rect.width / Math.max(1, frame.offsetWidth);
+    const scaleY = rect.height / Math.max(1, frame.offsetHeight);
+    stickerDragRef.current = {
+      index, resize, frame, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, moved: false,
+      offsetX: stickerRect ? (e.clientX - stickerRect.left) / scaleX : 0,
+      offsetY: stickerRect ? (e.clientY - stickerRect.top) / scaleY : 0,
+      startSize: sticker.size || 28, startXPos: sticker.x, startYPos: sticker.y,
+      startStickerWidth: stickerRect ? stickerRect.width / scaleX : 0,
+      startStickerHeight: stickerRect ? stickerRect.height / scaleY : 0,
+    };
     setSelectedSticker(index); e.currentTarget.setPointerCapture?.(e.pointerId);
   };
   const moveSticker = (e) => {
-    const drag = stickerDragRef.current; if (!drag) return;
+    const drag = stickerDragRef.current; if (!drag || drag.pointerId !== e.pointerId) return;
+    e.preventDefault();
     const dx = e.clientX - drag.startX, dy = e.clientY - drag.startY;
-    if (drag.resize) updateSticker(drag.index, { size: Math.max(16, Math.min(140, drag.startSize + (dx + dy) / 2)) });
-    else updateSticker(drag.index, { x: Math.max(0, Math.min(96, drag.startXPos + dx / drag.rect.width * 100)), y: Math.max(0, Math.min(96, drag.startYPos + dy / drag.rect.height * 100)) });
+    if (!drag.moved && Math.hypot(dx, dy) <= 5) return;
+    drag.moved = true;
+    const rect = drag.frame.getBoundingClientRect();
+    if (drag.resize) {
+      const scaleX = rect.width / Math.max(1, drag.frame.offsetWidth);
+      const scaleY = rect.height / Math.max(1, drag.frame.offsetHeight);
+      updateSticker(drag.index, { size: Math.max(16, Math.min(140, drag.startSize + (dx / scaleX + dy / scaleY) / 2)) });
+    } else {
+      const scaleX = rect.width / Math.max(1, drag.frame.offsetWidth);
+      const scaleY = rect.height / Math.max(1, drag.frame.offsetHeight);
+      const width = drag.frame.clientWidth, height = drag.frame.clientHeight;
+      const maxX = Math.max(0, width - drag.startStickerWidth);
+      const maxY = Math.max(0, height - drag.startStickerHeight);
+      const left = Math.max(0, Math.min(maxX, (e.clientX - rect.left) / scaleX - drag.frame.clientLeft + drag.frame.scrollLeft - drag.offsetX));
+      const top = Math.max(0, Math.min(maxY, (e.clientY - rect.top) / scaleY - drag.frame.clientTop + drag.frame.scrollTop - drag.offsetY));
+      updateSticker(drag.index, { x: Math.max(0, Math.min(100, left / width * 100)), y: Math.max(0, Math.min(100, top / height * 100)) });
+    }
   };
-  const endStickerDrag = () => { stickerDragRef.current = null; };
+  const endStickerDrag = (e) => {
+    if (stickerDragRef.current && (e?.pointerId == null || stickerDragRef.current.pointerId === e.pointerId)) stickerDragRef.current = null;
+  };
   const removeSticker = (index) => setStyleKey({ stickers: (style.stickers || []).filter((_, i) => i !== index) });
 
   const onBgImage = async (e) => {
@@ -510,17 +559,6 @@ export default function App() {
   const endPaint = () => { paintDrawingRef.current = false; };
   const undoPaint = () => { const last = paintHistory.at(-1); if (!last) return; setPaintFuture(f => [...f, snapshotCanvas()]); setPaintHistory(h => h.slice(0,-1)); const c=paintCanvasRef.current; if(c){c.getContext("2d").clearRect(0,0,c.width,c.height); restoreCanvas(last);} };
   const redoPaint = () => { const next = paintFuture.at(-1); if (!next) return; setPaintHistory(h => [...h, snapshotCanvas()]); setPaintFuture(f => f.slice(0,-1)); const c=paintCanvasRef.current; if(c){c.getContext("2d").clearRect(0,0,c.width,c.height); restoreCanvas(next);} };
-  const moveEvent = (e, day) => {
-    if (paintTool !== "move") return;
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-    const planIndex = Number(e.currentTarget.dataset.plan), eventIndex = Number(e.currentTarget.dataset.event);
-    const rect = e.currentTarget.parentElement.getBoundingClientRect();
-    const dayIndex = DAYS.indexOf(day); const nextDay = DAYS[Math.max(0, Math.min(6, Math.round((e.clientX - rect.left) / (rect.width / 7) - .5)))];
-    if (nextDay && nextDay !== day) updateEvent(planIndex, eventIndex, { day: nextDay });
-    setDraggingEvent({ planIndex, eventIndex });
-  };
-  const finishMove = () => setDraggingEvent(null);
-
   const groups = groupFixed(person.fixed);
 
   // ----- Construction de la semaine (réutilisée pour l'affichage) -----
@@ -586,7 +624,7 @@ export default function App() {
         const dayImg = style.dayImages[d];
         return (
           <div key={d} className="day" draggable={paintTool === "move"}
-            onDragStart={(e) => { atelierDayDragRef.current = d; e.dataTransfer.effectAllowed = "move"; }}
+            onDragStart={(e) => { if (e.target.closest?.(".event")) { e.preventDefault(); return; } atelierDayDragRef.current = d; e.dataTransfer.effectAllowed = "move"; }}
             onDragOver={(e) => { if (paintTool === "move") e.preventDefault(); }}
             onDrop={(e) => {
               e.preventDefault();
@@ -621,14 +659,13 @@ export default function App() {
                   <div
                     key={i}
                     className={(canEdit ? "event editable" : "event") + " event-reveal"}
-                    data-plan={e.owner} data-event={e.evIndex}
-                    onPointerDown={(ev) => moveEvent(ev, d)} onPointerUp={finishMove}
                     onClick={canEdit ? () => startEdit(e.owner, e.evIndex) : undefined}
                     onDoubleClick={() => paintTool === "bucket" && setStyleKey({ blockColor: paintColor })}
                     style={{
                       background: c.bg,
                       borderLeft: `3px solid ${warns.length ? "#dc2626" : c.border}`,
                       opacity: e.fixed ? 0.85 : 1,
+                      userSelect: "none", WebkitUserSelect: "none",
                       animationDelay: `${i * 90}ms`,
                     }}
                   >
@@ -1242,8 +1279,7 @@ html.editor-active, html.editor-active body { background:#f7f7f5; color:#151515;
 /* Atelier : cadre fixe et interactions de dessin au-dessus du planning. */
 .week-frame { position:relative; border:2px solid rgba(167,139,250,.55); border-radius:18px; padding:14px; margin-top:16px; background:rgba(10,7,24,.18); overflow:hidden; }
 .week-frame .week { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:0; }
-.week-frame .day { min-width:0; min-height:145px; cursor:grab; user-select:none; touch-action:none; }
-.week-frame .day:active { cursor:grabbing; }
+.week-frame .day { min-width:0; min-height:145px; user-select:none; }
 .paint-canvas { user-select:none; -webkit-user-select:none; touch-action:none; }
 @media (max-width:680px) { .week-frame .week { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 
