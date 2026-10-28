@@ -35,6 +35,12 @@ const CATEGORIES = [
 ];
 
 const STORAGE_KEY = "ruvy-planner-v2";
+const ACCESS_STORAGE_KEY = "ruvy-planner-access-v1";
+const STRIPE_LINKS = {
+  mensuel: "https://buy.stripe.com/REMPLACER_MENSUEL",
+  annuel: "https://buy.stripe.com/test_eVq7sNb307nRbBs0Pu8IU00",
+  oneshot: "https://buy.stripe.com/REMPLACER_ONESHOT",
+};
 const MAX_SHIFT_MIN = 30;
 
 function classify(title) {
@@ -146,6 +152,17 @@ function fileToDataUrl(file) {
 export default function App() {
   const saved = useRef(loadSaved()).current;
   const [showLanding, setShowLanding] = useState(true);
+  const [showPricing, setShowPricing] = useState(false);
+  const [access, setAccess] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem(ACCESS_STORAGE_KEY) || "null");
+    } catch {
+      return null;
+    }
+  });
+  const [referralCode, setReferralCode] = useState("");
+  const [referralMessage, setReferralMessage] = useState("");
+  const [pricingNotice, setPricingNotice] = useState("");
 
   const [couple, setCouple] = useState(saved?.couple ?? false);
   const [people, setPeople] = useState(saved?.people ?? [emptyPerson("Toi")]);
@@ -183,6 +200,39 @@ export default function App() {
 
   const person = people[active] || people[0];
   const progress = Math.round((Math.min(step, 2) / 2) * 100);
+
+  const saveAccess = (record) => {
+    try {
+      localStorage.setItem(ACCESS_STORAGE_KEY, JSON.stringify(record));
+      setAccess(record);
+      return true;
+    } catch {
+      setError("Impossible d'enregistrer l'accès sur cet appareil. Vérifie les réglages de stockage du navigateur.");
+      return false;
+    }
+  };
+
+  const selectPlan = (plan) => {
+    // Mémorise l’offre avant la redirection ; le paiement doit être confirmé côté serveur.
+    if (!saveAccess({ unlocked: false, type: "plan", plan, status: "pending_payment", selectedAt: new Date().toISOString() })) return;
+    window.location.href = STRIPE_LINKS[plan];
+  };
+
+  const applyReferralCode = (event) => {
+    event.preventDefault();
+    if (referralCode.trim().toUpperCase() !== "MIMIS100") {
+      setReferralMessage("Code invalide. Vérifie le code et réessaie.");
+      return;
+    }
+    const record = { unlocked: true, type: "referral", code: "MIMIS100", appliedAt: new Date().toISOString() };
+    if (!saveAccess(record)) return;
+    setReferralMessage("");
+    setPricingNotice("Code MIMIS100 appliqué : ton accès gratuit est activé !");
+    setShowPricing(false);
+    setShowLanding(false);
+    setStep(0);
+    window.scrollTo(0, 0);
+  };
 
   useEffect(() => {
     document.documentElement.classList.toggle("editor-active", !showLanding && step === 4);
@@ -742,13 +792,71 @@ export default function App() {
   };
 
   if (showLanding) {
-    return <Landing onStart={() => { setShowLanding(false); setStep(0); window.scrollTo(0, 0); }} />;
+    return <Landing onStart={() => {
+      setShowLanding(false);
+      if (access?.unlocked) {
+        setStep(0);
+      } else {
+        setReferralMessage("");
+        setShowPricing(true);
+      }
+      window.scrollTo(0, 0);
+    }} />;
+  }
+
+  if (showPricing) {
+    return (
+      <main className="pricing-page">
+        <style>{css}</style>
+        <header className="pricing-header">
+          <button type="button" className="pricing-back" onClick={() => { setShowPricing(false); setShowLanding(true); }}>← Retour</button>
+          <p className="pricing-eyebrow">RUVY PLANNER · À TOI DE JOUER</p>
+          <h1>Choisis ta formule</h1>
+          <p className="pricing-intro">Un planning pensé pour trouver le bon rythme, à deux ou en solo.</p>
+        </header>
+        <section className="pricing-grid" aria-label="Formules RUVY Planner">
+          <article className="pricing-card">
+            <p className="pricing-kicker">LIBERTÉ</p>
+            <h2>RUVY Planner - Mensuel</h2>
+            <p className="pricing-price">3,99 <span>€/mois</span></p>
+            <p className="pricing-detail">Facturé chaque mois</p>
+            <button type="button" className="pricing-choose" onClick={() => selectPlan("mensuel")}>Choisir le mensuel <span>↗</span></button>
+          </article>
+          <article className="pricing-card pricing-card-featured">
+            <span className="pricing-badge">LE PLUS AVANTAGEUX</span>
+            <p className="pricing-kicker">MEILLEURE VALEUR</p>
+            <h2>RUVY Planner - Annuel</h2>
+            <p className="pricing-price">29,99 <span>€/an</span></p>
+            <p className="pricing-detail">≈ 2,50 €/mois · Économise 17,89 € / an (≈ 37 %)</p>
+            <button type="button" className="pricing-choose" onClick={() => selectPlan("annuel")}>Choisir l'annuel <span>↗</span></button>
+          </article>
+          <article className="pricing-card">
+            <p className="pricing-kicker">SANS ABONNEMENT</p>
+            <h2>RUVY Planner - One-Shot</h2>
+            <p className="pricing-price">14,99 <span>€</span></p>
+            <p className="pricing-detail">Paiement unique</p>
+            <button type="button" className="pricing-choose" onClick={() => selectPlan("oneshot")}>Choisir le paiement unique <span>↗</span></button>
+          </article>
+        </section>
+        <form className="referral-box" onSubmit={applyReferralCode}>
+          <label htmlFor="ruvy-referral">Tu as un code de parrainage ?</label>
+          <p>Entre-le ici pour débloquer ton accès.</p>
+          <div className="referral-row">
+            <input id="ruvy-referral" className="input" value={referralCode} onChange={(event) => { setReferralCode(event.target.value); setReferralMessage(""); }} placeholder="Code de parrainage" autoComplete="off" />
+            <button type="submit" className="pricing-redeem">Appliquer</button>
+          </div>
+          {referralMessage && <p className="referral-error" role="alert">{referralMessage}</p>}
+        </form>
+        <p className="pricing-footnote">Paiement sécurisé par Stripe · Accès à ton planning après sélection.</p>
+      </main>
+    );
   }
 
   return (
     <div className="app">
       <style>{css}</style>
 
+      {pricingNotice && <div className="access-success" role="status">✓ {pricingNotice}<button type="button" aria-label="Fermer" onClick={() => setPricingNotice("")}>×</button></div>}
       {cinematic && (
         <div className="cinematic no-print" role="status" aria-live="polite">
           <button type="button" className="btn ghost cinematic-home" onClick={goHome}>← Retour à l'accueil</button>
@@ -1500,4 +1608,43 @@ html.editor-active .app {
 }
 
 
+
+
+/* RUVY Planner — parcours de choix tarifaire */
+.pricing-page { min-height:100vh; max-width:none; margin:0; padding:clamp(28px,6vw,76px) 24px 44px; color:#f4f1ed; background:#111; font-family:Montserrat, Inter, system-ui, sans-serif; }
+.pricing-page * { box-sizing:border-box; }
+.pricing-header { max-width:1060px; margin:0 auto 38px; position:relative; text-align:center; }
+.pricing-back { position:absolute; left:0; top:0; padding:10px 14px; border:1px solid #484848; border-radius:999px; background:transparent; color:#ddd; font:600 13px Montserrat,system-ui,sans-serif; cursor:pointer; }
+.pricing-back:hover { border-color:#f37021; color:#fff; }
+.pricing-eyebrow,.pricing-kicker { color:#f37021; font-size:11px; font-weight:800; letter-spacing:.18em; }
+.pricing-eyebrow { margin:20px 0 12px; }
+.pricing-header h1 { margin:0; color:#fff; font-family:Anton, Impact, sans-serif; font-size:clamp(42px,7vw,76px); font-weight:400; letter-spacing:.025em; line-height:1; }
+.pricing-intro { color:#aaa; font-size:15px; margin:14px 0 0; }
+.pricing-grid { max-width:1060px; margin:0 auto; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); align-items:stretch; gap:16px; }
+.pricing-card { position:relative; display:flex; flex-direction:column; padding:28px 24px 24px; min-height:270px; background:#1b1b1b; border:1px solid #373737; border-radius:18px; }
+.pricing-card-featured { border:2px solid #f37021; background:linear-gradient(155deg,#25201c,#191919 64%); box-shadow:0 14px 55px rgba(243,112,33,.13); transform:translateY(-7px); }
+.pricing-badge { position:absolute; right:16px; top:16px; padding:6px 9px; color:#141414; background:#f37021; border-radius:999px; font-size:9px; font-weight:900; letter-spacing:.08em; }
+.pricing-kicker { margin:0 0 12px; }
+.pricing-card h2 { min-height:48px; margin:0; color:#fff; font-size:18px; line-height:1.35; }
+.pricing-price { color:#fff; margin:24px 0 0; font-size:42px; line-height:1; font-weight:800; letter-spacing:-.05em; }
+.pricing-price span { color:#aaa; font-size:15px; font-weight:600; letter-spacing:0; }
+.pricing-detail { min-height:40px; margin:10px 0 22px; color:#aaa; font-size:12px; line-height:1.6; }
+.pricing-choose,.pricing-redeem { width:100%; min-height:48px; padding:12px 14px; border:1px solid #f37021; border-radius:10px; background:#f37021; color:#111; font:800 14px Montserrat,system-ui,sans-serif; cursor:pointer; transition:transform .15s,background .15s; }
+.pricing-choose { margin-top:auto; display:flex; align-items:center; justify-content:space-between; }
+.pricing-choose:hover,.pricing-redeem:hover { background:#ff873d; transform:translateY(-1px); }
+.pricing-card:not(.pricing-card-featured) .pricing-choose { background:transparent; color:#f4f1ed; border-color:#555; }
+.pricing-card:not(.pricing-card-featured) .pricing-choose:hover { border-color:#f37021; color:#fff; }
+.referral-box { max-width:650px; margin:34px auto 0; padding:22px 24px; border:1px solid #373737; border-radius:16px; background:#191919; }
+.referral-box label { display:block; color:#fff; font-size:15px; font-weight:800; }
+.referral-box > p { margin:6px 0 14px; color:#aaa; font-size:13px; }
+.referral-row { display:flex; gap:10px; }
+.referral-row .input { flex:1; min-width:0; background:#111; border-color:#484848; color:#fff; }
+.referral-row .input:focus { border-color:#f37021; box-shadow:0 0 0 3px rgba(243,112,33,.14); }
+.pricing-redeem { width:auto; min-width:130px; }
+.referral-error { color:#ff7777 !important; font-weight:700; }
+.pricing-footnote { margin:18px 0 0; text-align:center; color:#777; font-size:11px; }
+.access-success { position:relative; display:flex; align-items:center; justify-content:space-between; gap:14px; margin:0 auto 18px; max-width:820px; padding:13px 16px; border:1px solid #83c99c; border-radius:12px; background:#eaf7ee; color:#14532d; font-weight:700; }
+.access-success button { border:0; background:transparent; color:inherit; font-size:22px; cursor:pointer; }
+@media(max-width:760px) { .pricing-page { padding:24px 14px 36px; }.pricing-header { padding-top:36px; }.pricing-back { top:0; }.pricing-grid { grid-template-columns:1fr; gap:12px; }.pricing-card { min-height:0; }.pricing-card-featured { transform:none; order:-1; }.pricing-card h2,.pricing-detail { min-height:0; }.pricing-choose { margin-top:8px; }.referral-box { padding:18px; } }
+@media(max-width:420px) { .referral-row { flex-direction:column; }.pricing-redeem { width:100%; } }
 `;

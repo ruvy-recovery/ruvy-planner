@@ -1,0 +1,43 @@
+{
+  "resume": {
+    "total": 3,
+    "ok": 0,
+    "echecApi": 0,
+    "erreurJs": 0,
+    "pasDeGeneration": 3,
+    "crash": 0,
+    "debordementMobile": 0,
+    "perteApresReload": 0
+  },
+  "resultats": [
+    {
+      "id": 1,
+      "mobile": false,
+      "bizarre": false,
+      "statut": "pas-de-generation",
+      "erreursJs": [],
+      "api": null,
+      "extrait": "Mon planning\n\nConstruis une semaine d'entraînement adaptée à ton niveau.\n\nProfil\nTa semaine\nObjectifs\nPersonnalisation\nPour qui est ce planning ?\n← Retour à l'accueil\nMoi seul\nUn planning personnel\nEn couple\nUn planning commun avec créneaux partagés\nTon niveau\nDébutant\nMoins de 6 mois de pratique\nIn"
+    },
+    {
+      "id": 2,
+      "mobile": true,
+      "bizarre": false,
+      "statut": "pas-de-generation",
+      "erreursJs": [],
+      "api": null,
+      "extrait": "Mon planning\n\nConstruis une semaine d'entraînement adaptée à ton niveau.\n\nProfil\nTa semaine\nObjectifs\nPersonnalisation\nPour qui est ce planning ?\n← Retour à l'accueil\nMoi seul\nUn planning personnel\nEn couple\nUn planning commun avec créneaux partagés\nTon niveau\nDébutant\nMoins de 6 mois de pratique\nIn",
+      "debordementHorizontal": false
+    },
+    {
+      "id": 0,
+      "mobile": true,
+      "bizarre": false,
+      "statut": "pas-de-generation",
+      "erreursJs": [],
+      "api": null,
+      "extrait": "Mon planning\n\nConstruis une semaine d'entraînement adaptée à ton niveau.\n\nProfil\nTa semaine\nObjectifs\nPersonnalisation\nPour qui est ce planning ?\n← Retour à l'accueil\nMoi seul\nUn planning personnel\nEn couple\nUn planning commun avec créneaux partagés\nTon niveau\nDébutant\nMoins de 6 mois de pratique\nIn",
+      "debordementHorizontal": false
+    }
+  ]
+}
