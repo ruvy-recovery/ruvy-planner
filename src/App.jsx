@@ -2,7 +2,281 @@
 import { useState, useEffect, useRef } from "react";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
-import Landing from "./Landing";
+const SHOPIFY_URL = "https://ruvyrecovery.myshopify.com";
+
+const BOXES = [
+  {
+    id: "jjb",
+    name: "JJB",
+    color: "#E8B923",
+    title: "Les essentiels du Jiu-Jitsu brésilien",
+    image: "/box-jjb.jpg",
+    products: [
+      { name: "Wet Bag", desc: "Sac imperméable pour les vêtements humides après l'entraînement." },
+      { name: "Finger Tape", desc: "Protection des doigts pendant la pratique." },
+      { name: "Serviette microfibre", desc: "Compacte, pour la transpiration." },
+      { name: "Mini kit premiers secours", desc: "Pansements et matériel de nettoyage." },
+      { name: "Mini kit coupe-ongles", desc: "Hygiène et ne pas blesser ses partenaires." },
+    ],
+  },
+  {
+    id: "run",
+    name: "RUN",
+    color: "#F37021",
+    title: "Les accessoires pour courir confortablement",
+    image: "/box-run.jpg",
+    products: [
+      { name: "Ceinture running", desc: "Téléphone, clés, petits objets." },
+      { name: "Stick anti-frottements", desc: "Prévient les irritations." },
+      { name: "Serviette microfibre", desc: "Compacte et légère." },
+      { name: "Dossard RUVY stylé", desc: "Réutilisable, aux couleurs de la marque." },
+      { name: "Chaussettes techniques", desc: "Confort, limite les frottements." },
+    ],
+  },
+  {
+    id: "gym",
+    name: "GYM",
+    color: "#9A9A9A",
+    title: "Les indispensables de la musculation",
+    image: "/box-gym.jpg",
+    products: [
+      { name: "Serviette microfibre", desc: "Toujours à portée de main." },
+      { name: "Grips / protections des mains", desc: "Frottements et callosités." },
+      { name: "Mini bande élastique de résistance", desc: "Échauffement, mobilité, activation." },
+      { name: "Balle de massage", desc: "Récupération." },
+      { name: "Support téléphone compact", desc: "Suivre son programme RUVY Planner ou filmer ses exercices." },
+    ],
+  },
+  {
+    id: "bachata",
+    name: "BACHATA",
+    color: "#E3262E",
+    title: "Les essentiels pour profiter pleinement de la danse",
+    image: "/box-bachata.jpg",
+    products: [
+      { name: "Éventail compact", desc: "Pour les sessions intenses." },
+      { name: "Petite serviette microfibre", desc: "Pratique et discrète." },
+      { name: "Chaussettes adaptées à la danse", desc: "Confort et adhérence." },
+      { name: "Protections anti-ampoules", desc: "Pour danser sans douleur." },
+      { name: "Petite pochette de rangement", desc: "Tout garder à portée de main." },
+    ],
+  },
+];
+
+function useReveal() {
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) {
+      document.querySelectorAll(".landing-root .reveal").forEach((el) => el.classList.add("is-visible"));
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((e) => {
+          if (e.isIntersecting) {
+            e.target.classList.add("is-visible");
+            io.unobserve(e.target);
+          }
+        });
+      },
+      { threshold: 0.12 }
+    );
+    const els = document.querySelectorAll(".landing-root .reveal");
+    els.forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, []);
+}
+
+function BoxImage({ src, alt, color, onTilt }) {
+  const [errored, setErrored] = useState(false);
+  const ref = useRef(null);
+
+  function handleMouseMove(e) {
+    const el = ref.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width - 0.5;
+    const y = (e.clientY - rect.top) / rect.height - 0.5;
+    const rx = (-y * 10).toFixed(2);
+    const ry = (x * 10).toFixed(2);
+    el.style.transform = `translateY(0) rotateX(${rx}deg) rotateY(${ry}deg)`;
+    if (onTilt) onTilt(true);
+  }
+  function handleMouseLeave() {
+    const el = ref.current;
+    if (!el) return;
+    el.style.transform = "";
+    if (onTilt) onTilt(false);
+  }
+
+  if (errored) {
+    return (
+      <div
+        className="lp-slide-photo-fallback"
+        style={{ "--halo": color }}
+        aria-label={alt}
+      >
+        {alt}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      ref={ref}
+      className="lp-slide-photo"
+      src={src}
+      alt={alt}
+      loading="lazy"
+      style={{ "--halo": color }}
+      onError={() => setErrored(true)}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+    />
+  );
+}
+
+const landingCss = `
+.landing-root{--lp-orange:#f37021;--lp-gold:#d5ad55;--lp-bg:#080909;--lp-muted:#b6b8b9;background:var(--lp-bg);color:#f7f7f4;font-family:Montserrat,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;width:100vw;position:relative;left:50%;margin-left:-50vw;overflow:hidden;text-align:left;line-height:1.5}
+.landing-root *,.landing-root *:before,.landing-root *:after{box-sizing:border-box}
+.landing-root h1,.landing-root h2,.landing-root h3,.landing-root p{margin-top:0}
+.landing-root .reveal{opacity:0;transform:translateY(18px);transition:opacity .65s ease,transform .65s ease}.landing-root .reveal.is-visible{opacity:1;transform:none}
+.lp-hero{min-height:690px;display:flex;align-items:center;padding:76px max(6vw,22px);position:relative;background:radial-gradient(ellipse at 78% 48%,rgba(213,173,85,.16),transparent 39%),radial-gradient(ellipse at 8% 12%,rgba(243,112,33,.16),transparent 35%),linear-gradient(130deg,#090a0a,#111211 60%,#0b0c0c);isolation:isolate}
+.lp-hero:after{content:"";position:absolute;inset:0;z-index:-1;opacity:.15;background-image:linear-gradient(rgba(255,255,255,.1) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.1) 1px,transparent 1px);background-size:72px 72px;mask-image:linear-gradient(90deg,transparent,#000 70%)}
+.lp-hero-grid{width:min(1240px,100%);margin:auto;display:grid;grid-template-columns:minmax(0,.9fr) minmax(420px,1.1fr);gap:clamp(28px,5vw,76px);align-items:center}
+.lp-hero-copy{position:relative;z-index:1}.lp-logo{width:clamp(100px,13vw,154px);height:auto;object-fit:contain;margin:0 0 24px;filter:drop-shadow(0 8px 22px rgba(243,112,33,.2))}
+.lp-headline,.lp-title,.lp-slide-title{font-family:Anton,Impact,"Arial Narrow",sans-serif;text-transform:uppercase;letter-spacing:.01em;line-height:1.02}.lp-headline{font-size:clamp(3rem,6.6vw,6rem);max-width:670px;margin:0 0 20px;background:linear-gradient(120deg,#fff 24%,#efd6bb 78%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}.lp-headline em{font-style:normal;color:var(--lp-orange);-webkit-text-fill-color:var(--lp-orange)}
+.lp-sub{color:#d0d1cf;font-size:clamp(1rem,1.35vw,1.13rem);line-height:1.75;max-width:570px;margin:0 0 28px}.lp-actions{display:flex;flex-wrap:wrap;gap:12px}.lp-btn{appearance:none;border:1px solid transparent;border-radius:5px;padding:15px 22px;min-height:52px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;font:800 .82rem Montserrat,system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;transition:transform .2s ease,background .2s ease,border-color .2s ease}.lp-btn:hover{transform:translateY(-2px)}.lp-btn-primary{background:var(--lp-orange);color:#fff;box-shadow:0 9px 24px rgba(243,112,33,.2)}.lp-btn-primary:hover{background:#ff8137}.lp-btn-secondary{border-color:#656866;color:#f5f5f2;background:rgba(0,0,0,.18)}.lp-btn-secondary:hover{border-color:var(--lp-orange);color:#ffb078}
+.lp-planner-preview{padding:18px;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:linear-gradient(145deg,rgba(31,33,31,.98),rgba(13,14,14,.98));box-shadow:0 28px 80px rgba(0,0,0,.46),0 0 55px rgba(213,173,85,.08);transform:rotate(1deg)}.lp-preview-top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:2px 3px 16px}.lp-preview-brand{font-size:.7rem;font-weight:900;letter-spacing:.16em}.lp-preview-brand b{color:var(--lp-orange)}.lp-preview-label{color:#9fa29f;font-size:.67rem;letter-spacing:.08em;text-transform:uppercase}.lp-preview-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:7px}.lp-day{min-width:0;min-height:216px;padding:10px 7px;border-radius:7px;background:#202220;border:1px solid rgba(255,255,255,.055)}.lp-day-name{text-align:center;color:#c5c7c3;font-size:.59rem;font-weight:800;letter-spacing:.04em;margin-bottom:12px}.lp-day-date{text-align:center;color:#858984;font-size:.57rem;margin-top:-9px;margin-bottom:12px}.lp-event{padding:7px 5px;border-radius:4px;background:#33312b;border-left:2px solid var(--lp-gold);font-size:.55rem;color:#eee9db;line-height:1.35;margin-bottom:7px}.lp-event.orange{background:#38281f;border-color:var(--lp-orange);color:#ffe1cd}.lp-event.muted{background:#2a2b2a;border-color:#8d938d;color:#d3d5d1}.lp-preview-foot{display:flex;align-items:center;justify-content:space-between;padding:14px 3px 2px;color:#aeb1ab;font-size:.64rem}.lp-preview-pill{border:1px solid rgba(243,112,33,.46);color:#ffb27c;border-radius:99px;padding:5px 9px;font-size:.6rem}
+.lp-scroll-cue{position:absolute;bottom:24px;left:max(6vw,22px);color:#9fa19d;font-size:.65rem;letter-spacing:.2em}
+.lp-section{padding:88px max(6vw,22px);position:relative}.lp-section-inner{width:min(1160px,100%);margin:0 auto}.lp-eyebrow{display:block;color:var(--lp-orange);font-weight:900;font-size:.7rem;letter-spacing:.2em;text-transform:uppercase;margin-bottom:13px}.lp-title{font-size:clamp(2.1rem,4.3vw,3.6rem);margin:0 0 16px}.lp-text{color:#c3c5c2;font-size:1rem;line-height:1.75;max-width:770px;margin:0}.lp-text strong{color:#fff}.lp-orange{color:#ff9756}
+.lp-about{background:#141615;border-top:1px solid rgba(255,255,255,.05);border-bottom:1px solid rgba(255,255,255,.05)}.lp-about-grid{display:grid;grid-template-columns:1fr .85fr;gap:58px;align-items:center}.lp-about-card{position:relative;border:1px solid rgba(213,173,85,.25);background:linear-gradient(135deg,#20221f,#101211);border-radius:12px;padding:28px;overflow:hidden}.lp-about-card:after{content:"";position:absolute;right:-65px;top:-90px;width:240px;height:240px;border:1px solid rgba(213,173,85,.16);border-radius:50%;box-shadow:0 0 0 24px rgba(213,173,85,.025),0 0 0 48px rgba(213,173,85,.02)}.lp-about-card h3{font-size:1.15rem;margin:0 0 10px;position:relative;z-index:1}.lp-about-card p{position:relative;z-index:1;color:#c3c5c2;line-height:1.7;margin:0}.lp-about-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:27px}.lp-stat{padding:16px 13px;border-top:2px solid var(--lp-gold);background:rgba(255,255,255,.035)}.lp-stat strong{display:block;color:#f1d18a;font-size:1.6rem;line-height:1.15}.lp-stat span{display:block;color:#b3b5b1;font-size:.68rem;margin-top:6px}
+.lp-slider{--halo:#d5ad55;position:relative;padding:78px max(4vw,18px) 88px;background:#080909;overflow:hidden}.lp-slider:before{content:"";position:absolute;inset:0;background:radial-gradient(ellipse at 50% 0%,color-mix(in srgb,var(--halo) 12%,transparent),transparent 55%);pointer-events:none}.lp-slider-heading{max-width:1160px;margin:0 auto 26px;position:relative}.lp-slider-heading h2{font-family:Anton,Impact,sans-serif;font-size:clamp(2rem,4vw,3.2rem);text-transform:uppercase;margin:0}.lp-slider-heading p{color:#aeb0ac;margin:7px 0 0}.lp-box-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:15px;max-width:1160px;margin:0 auto;position:relative}.lp-box-tile{display:grid;grid-template-columns:minmax(100px,.7fr) 1fr;align-items:center;gap:14px;min-height:185px;padding:16px;border:1px solid rgba(255,255,255,.1);border-radius:10px;background:linear-gradient(145deg,#171918,#101111);color:#f5f5f2;text-align:left;cursor:pointer;transition:transform .25s,border-color .25s,background .25s}.lp-box-tile:hover{transform:translateY(-3px);border-color:var(--tile-color)}.lp-box-tile.active{border-color:var(--tile-color);background:linear-gradient(145deg,#22231f,#121313);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--tile-color) 20%,transparent)}.lp-tile-photo{width:100%;height:132px;object-fit:contain;filter:drop-shadow(0 8px 15px color-mix(in srgb,var(--tile-color) 24%,transparent))}.lp-slide-photo{display:block;width:100%;height:132px;object-fit:contain;transform:perspective(700px);transition:transform .2s ease}.lp-slide-photo-fallback{height:132px;border-radius:7px;display:grid;place-items:center;background:radial-gradient(circle,color-mix(in srgb,var(--halo) 24%,#171817),#101111 70%);font-family:Anton,Impact,sans-serif;font-size:1.6rem;color:var(--halo)}.lp-tile-copy{min-width:0}.lp-tile-index{font-size:.61rem;color:var(--tile-color);font-weight:900;letter-spacing:.13em}.lp-tile-title{font-family:Anton,Impact,sans-serif;font-size:1.45rem;margin:4px 0 5px}.lp-tile-desc{font-size:.71rem;line-height:1.5;color:#b9bbb7}.lp-slider-controls{max-width:1160px;margin:18px auto 0;display:flex;align-items:center;justify-content:space-between;gap:12px;position:relative}.lp-slider-arrows{display:flex;gap:8px}.lp-slider-arrow{width:40px;height:40px;border:1px solid #555954;background:#171918;color:#fff;border-radius:50%;font-size:1.4rem;cursor:pointer}.lp-slider-arrow:hover{border-color:var(--lp-orange);color:var(--lp-orange)}.lp-slider-position{font-size:.71rem;letter-spacing:.12em;color:#aaa}.lp-slider-dots{display:flex;gap:8px;align-items:center}.lp-dot{width:8px;height:8px;padding:0;border:0;border-radius:50%;background:#555;cursor:pointer}.lp-dot.is-active{width:22px;border-radius:9px;background:var(--lp-orange)}.lp-products-panel{max-width:1160px;margin:28px auto 0;padding:24px;border:1px solid rgba(255,255,255,.09);border-radius:10px;background:#121414;position:relative}.lp-products-panel h3{font-family:Anton,Impact,sans-serif;font-size:1.5rem;text-transform:uppercase;margin:0 0 6px}.lp-products-panel>p{color:#acafaa;margin:0 0 18px}.lp-products{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}.lp-product{padding:13px;background:#1b1e1c;border-radius:6px}.lp-product-name{display:block;font-size:.76rem;font-weight:800;color:#f2f1eb;margin-bottom:5px}.lp-product-desc{display:block;color:#aaada8;font-size:.67rem;line-height:1.5}.lp-coming-soon{text-align:center;color:#878b86;font-size:.8rem;margin:22px 0 0}.lp-shop-link{display:block;text-align:center;margin-top:14px}.lp-footer-link{color:#e8bd75;font-weight:800;font-size:.77rem;text-decoration:none}.lp-footer-link:hover{color:#fff}
+.lp-planner{background:linear-gradient(120deg,#191a17,#121411 50%,#191711);border-top:1px solid rgba(213,173,85,.13);border-bottom:1px solid rgba(213,173,85,.13)}.lp-planner-layout{display:grid;grid-template-columns:.85fr 1.15fr;gap:44px;align-items:center}.lp-planner-copy .lp-text{margin-bottom:23px}.lp-prices{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:19px}.lp-price{padding:14px 12px;border:1px solid rgba(255,255,255,.12);border-radius:7px;background:rgba(0,0,0,.18)}.lp-price span{display:block;color:#aeb0ac;font-size:.66rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em}.lp-price strong{display:block;margin-top:5px;color:#f4d593;font-size:1.04rem}.lp-discount{margin-top:12px;padding:13px 14px;border-left:3px solid var(--lp-orange);background:rgba(243,112,33,.09);font-size:.78rem;color:#e2e3dd;line-height:1.6}.lp-discount strong{color:#ff9b5d}.lp-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px;margin-top:30px;align-items:stretch}.lp-step{height:100%;min-height:182px;padding:19px 16px;border:1px solid rgba(255,255,255,.1);border-radius:8px;background:linear-gradient(145deg,#20221e,#151715);display:flex;flex-direction:column}.lp-step-num{color:var(--lp-orange);font-family:Anton,Impact,sans-serif;font-size:1.5rem;line-height:1}.lp-step-title{font-size:.89rem;margin:13px 0 8px}.lp-step-desc{font-size:.75rem;line-height:1.55;color:#b3b6b0;margin:0}.lp-planner-cta{margin-top:20px}
+.lp-ambition{background:linear-gradient(180deg,#0b0c0b,#11130f 55%,#0b0c0b);text-align:center}.lp-ambition-inner{max-width:850px;margin:auto}.lp-ambition .lp-text{margin:0 auto}.lp-faq{background:#151716}.lp-faq-layout{display:grid;grid-template-columns:.7fr 1.3fr;gap:48px}.lp-faq-list{border-top:1px solid rgba(255,255,255,.15)}.lp-faq details{border-bottom:1px solid rgba(255,255,255,.15)}.lp-faq summary{list-style:none;cursor:pointer;padding:18px 30px 18px 0;font-weight:800;font-size:.91rem;position:relative}.lp-faq summary::-webkit-details-marker{display:none}.lp-faq summary:after{content:"+";position:absolute;right:2px;color:var(--lp-orange);font-size:1.3rem;top:12px}.lp-faq details[open] summary:after{content:"−"}.lp-faq details p{margin:0;padding:0 28px 18px 0;color:#bfc1bd;font-size:.85rem;line-height:1.7}
+.lp-footer{padding:32px max(6vw,22px);display:flex;align-items:center;justify-content:space-between;gap:18px;background:#080909;border-top:1px solid rgba(255,255,255,.08)}.lp-footer-signature{margin:0;color:#d8d9d5;font-size:.86rem;font-weight:800}.lp-footer-signature em{color:#f3bd69;font-style:normal}.lp-footer-social{display:flex;align-items:center;flex-wrap:wrap;gap:16px}.lp-social{color:#d7d9d4;text-decoration:none;font-size:.77rem;font-weight:800}.lp-social:hover{color:var(--lp-orange)}.lp-delivery{font-size:.69rem;color:#92958f}
+@media(max-width:900px){.lp-hero{min-height:auto;padding-top:80px;padding-bottom:75px}.lp-hero-grid{grid-template-columns:1fr;max-width:720px}.lp-hero-copy{max-width:680px}.lp-planner-preview{transform:none}.lp-about-grid,.lp-planner-layout,.lp-faq-layout{grid-template-columns:1fr;gap:30px}.lp-box-row{grid-template-columns:repeat(2,minmax(0,1fr))}.lp-box-tile:last-child{display:none}.lp-products{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:600px){.lp-section{padding:64px 20px}.lp-hero{padding:62px 20px 66px}.lp-hero-grid{gap:30px}.lp-headline{font-size:clamp(2.8rem,15vw,4.2rem)}.lp-planner-preview{padding:10px;border-radius:10px}.lp-preview-week{gap:4px}.lp-day{min-height:156px;padding:7px 3px}.lp-day-name{font-size:.49rem;letter-spacing:0}.lp-day-date{font-size:.48rem}.lp-event{font-size:.47rem;padding:6px 3px}.lp-preview-label{font-size:.55rem}.lp-scroll-cue{left:20px}.lp-about-grid{gap:24px}.lp-about-stats{gap:6px}.lp-stat{padding:13px 8px}.lp-stat strong{font-size:1.3rem}.lp-stat span{font-size:.61rem}.lp-slider{padding:60px 16px 65px}.lp-box-row{grid-template-columns:1fr}.lp-box-tile:nth-child(n+2){display:none}.lp-box-tile{min-height:164px;grid-template-columns:125px 1fr}.lp-tile-photo,.lp-slide-photo-fallback{height:120px}.lp-products-panel{padding:18px}.lp-products{grid-template-columns:repeat(2,minmax(0,1fr))}.lp-prices{grid-template-columns:1fr;gap:7px}.lp-price{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 12px}.lp-price strong{margin:0}.lp-steps{grid-template-columns:1fr;gap:10px}.lp-step{min-height:0;padding:16px}.lp-footer{align-items:flex-start;flex-direction:column;padding:27px 20px}.lp-footer-social{gap:14px}.lp-slider-controls{justify-content:space-between}}
+@media(prefers-reduced-motion:reduce){.landing-root .reveal{opacity:1;transform:none;transition:none}.landing-root *{scroll-behavior:auto!important;transition-duration:.01ms!important}}
+`;
+
+function Landing({ onStart }) {
+  const [slideIdx, setSlideIdx] = useState(0);
+  const touchStartX = useRef(null);
+  useReveal();
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const id = "ruvy-landing-fonts";
+    if (document.getElementById(id)) return;
+    const link = document.createElement("link");
+    link.id = id; link.rel = "stylesheet";
+    link.href = "https://fonts.googleapis.com/css2?family=Anton&family=Montserrat:wght@400;600;700;800;900&display=swap";
+    document.head.appendChild(link);
+  }, []);
+  const next = () => setSlideIdx((i) => (i + 1) % BOXES.length);
+  const prev = () => setSlideIdx((i) => (i - 1 + BOXES.length) % BOXES.length);
+  const goto = (i) => setSlideIdx(Math.max(0, Math.min(BOXES.length - 1, i)));
+  useEffect(() => {
+    function onKey(e) { if (e.key === "ArrowRight") next(); else if (e.key === "ArrowLeft") prev(); }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  function onTouchStart(e) { touchStartX.current = e.touches[0].clientX; }
+  function onTouchEnd(e) {
+    if (touchStartX.current == null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    if (Math.abs(dx) > 40) { if (dx < 0) next(); else prev(); }
+    touchStartX.current = null;
+  }
+  const slide = BOXES[slideIdx];
+  const visibleBoxes = [-1, 0, 1].map((offset) => BOXES[(slideIdx + offset + BOXES.length) % BOXES.length]);
+  return (
+    <div className="landing-root">
+      <style>{landingCss}</style>
+      <section className="lp-hero">
+        <div className="lp-hero-grid">
+          <div className="lp-hero-copy reveal is-visible">
+            <img src="/logo.png" alt="RUVY" className="lp-logo" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+            <h1 className="lp-headline">START YOUR <em>SPORT</em> RIGHT.</h1>
+            <p className="lp-sub">Des Starter Packs pensés pour les vrais besoins des sportifs débutants et confirmés. Chaque box rassemble les accessoires essentiels pour démarrer ta discipline, bien équipé et bien organisé.</p>
+            <div className="lp-actions">
+              <button type="button" className="lp-btn lp-btn-primary" onClick={onStart}>Créer mon planning</button>
+              <a className="lp-btn lp-btn-secondary" href={SHOPIFY_URL} target="_blank" rel="noopener noreferrer">Découvrir les boxes</a>
+            </div>
+          </div>
+          <div className="lp-planner-preview reveal is-visible" aria-label="Aperçu du RUVY Planner">
+            <div className="lp-preview-top"><span className="lp-preview-brand"><b>RUVY</b> PLANNER</span><span className="lp-preview-label">Ma semaine · exemple</span></div>
+            <div className="lp-preview-week">
+              {[["LUN","12",["Sport · 18h","Travail"]],["MAR","13",["Repos","Perso"]],["MER","14",["Sport · 19h","Récupération"]],["JEU","15",["Travail","Marche"]],["VEN","16",["Sport · 17h"]],["SAM","17",["Sortie","Temps libre"]],["DIM","18",["Repos","Préparer la semaine"]]].map(([day,date,events],i) => (
+                <div className="lp-day" key={day}><div className="lp-day-name">{day}</div><div className="lp-day-date">{date}</div>{events.map((event,j)=><div key={event} className={'lp-event '+((j===0&&i%2===0)?'orange':(j===1?'muted':''))}>{event}</div>)}</div>
+              ))}
+            </div>
+            <div className="lp-preview-foot"><span>Un rythme adapté à ta semaine</span><span className="lp-preview-pill">Sport · perso · pro</span></div>
+          </div>
+        </div>
+        <div className="lp-scroll-cue">SCROLL ↓</div>
+      </section>
+
+      <section className="lp-section lp-about">
+        <div className="lp-section-inner lp-about-grid">
+          <div className="reveal">
+            <span className="lp-eyebrow">QU'EST-CE QUE RUVY ?</span>
+            <h2 className="lp-title">Une marque française.<br />Des Starter Packs sportifs.</h2>
+            <p className="lp-text"><strong>RUVY</strong> est une jeune marque française spécialisée dans la création de <span className="lp-orange"> Starter Packs sportifs</span>, conçus pour accompagner les personnes qui débutent ou pratiquent une discipline sportive.</p>
+            <p className="lp-text" style={{marginTop:12}}>Notre mission : <strong>rendre le sport plus accessible, pratique et organisé.</strong></p>
+            <div className="lp-about-stats"><div className="lp-stat"><strong>4</strong><span>disciplines déjà intégrées</span></div><div className="lp-stat"><strong>1</strong><span>Planner pour s'organiser</span></div><div className="lp-stat"><strong>Tout âge</strong><span>débutant ou confirmé</span></div></div>
+          </div>
+          <div className="lp-about-card reveal"><h3>Une box = tout ce qu'il te faut.</h3><p>Chaque box rassemble des accessoires utiles : <strong>hygiène, confort, équipement, récupération, organisation</strong>. Tu reçois un kit prêt à l'emploi pour ta discipline.</p><p style={{marginTop:14}}><span className="lp-orange">RUVY ne propose pas simplement des accessoires.</span><br />Chaque box est pensée autour de véritables besoins, identifiés grâce aux expériences et aux retours des pratiquants.</p></div>
+        </div>
+      </section>
+
+      <section className="lp-slider" style={{"--halo":slide.color}} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+        <div className="lp-slider-heading reveal"><span className="lp-eyebrow">TROUVE TON DÉPART</span><h2>Les boxs RUVY</h2><p>Quatre disciplines, des essentiels pensés pour la pratique.</p></div>
+        <div className="lp-box-row" aria-live="polite">
+          {visibleBoxes.map((box,position)=><button key={box.id} type="button" className={'lp-box-tile '+(position===1?'active':'')} style={{"--tile-color":box.color}} onClick={()=>goto(BOXES.findIndex((b)=>b.id===box.id))} aria-pressed={position===1}>
+            <BoxImage src={box.image} alt={box.name} color={box.color} />
+            <span className="lp-tile-copy"><span className="lp-tile-index">BOX {BOXES.findIndex((b)=>b.id===box.id)+1} / 4</span><span className="lp-tile-title">{box.name}</span><span className="lp-tile-desc">{box.title}</span></span>
+          </button>)}
+        </div>
+        <div className="lp-slider-controls"><div className="lp-slider-arrows"><button type="button" className="lp-slider-arrow" aria-label="Précédent" onClick={prev}>‹</button><button type="button" className="lp-slider-arrow" aria-label="Suivant" onClick={next}>›</button></div><div className="lp-slider-dots" role="tablist" aria-label="Position dans les boxs">{BOXES.map((b,i)=><button key={b.id} type="button" className={'lp-dot'+(i===slideIdx?' is-active':'')} aria-label={'Afficher '+b.name} aria-selected={i===slideIdx} onClick={()=>goto(i)} />)}</div><span className="lp-slider-position">{slideIdx+1} / {BOXES.length}</span></div>
+        <div className="lp-products-panel reveal"><h3>{slide.name} — {slide.title}</h3><p>Une sélection d'essentiels pour ta pratique :</p><div className="lp-products">{slide.products.map((p)=><div key={p.name} className="lp-product"><span className="lp-product-name">{p.name}</span><span className="lp-product-desc">{p.desc}</span></div>)}</div></div>
+        <p className="lp-coming-soon">D'autres disciplines arrivent bientôt.</p>
+        <div className="lp-shop-link"><a className="lp-footer-link" href={SHOPIFY_URL} target="_blank" rel="noopener noreferrer">Voir toute la boutique</a></div>
+      </section>
+
+      <section className="lp-section lp-planner">
+        <div className="lp-section-inner lp-planner-layout reveal">
+          <div className="lp-planner-copy"><span className="lp-eyebrow">INCLUS AVEC TA BOX</span><h2 className="lp-title">RUVY Planner.</h2><p className="lp-text">L'outil parfait pour organiser ta vie sportive, professionnelle et personnelle — inclus avec chaque box RUVY. Scan, configure, et c'est parti.</p>
+            <div className="lp-prices"><div className="lp-price"><span>Mensuel</span><strong>3,99 EUR/mois</strong></div><div className="lp-price"><span>Annuel</span><strong>29,99 EUR/an</strong></div><div className="lp-price"><span>One-Shot</span><strong>14,99 EUR</strong></div></div>
+            <div className="lp-discount"><strong>Avec une box : -30% sur le Planner et les abonnements.</strong><br />Sans achat de box, les prix affichés sont les prix de base.</div>
+            <div className="lp-planner-cta"><button type="button" className="lp-btn lp-btn-primary" onClick={onStart}>Créer mon planning</button></div>
+          </div>
+          <div><div className="lp-steps">
+            <div className="lp-step"><span className="lp-step-num">01</span><h3 className="lp-step-title">Tu reçois ta box</h3><p className="lp-step-desc">Tous les accessoires essentiels pour démarrer ta discipline.</p></div>
+            <div className="lp-step"><span className="lp-step-num">02</span><h3 className="lp-step-title">Tu scannes le QR code</h3><p className="lp-step-desc">À l'intérieur de ta box, un QR code te mène directement au Planner.</p></div>
+            <div className="lp-step"><span className="lp-step-num">03</span><h3 className="lp-step-title">Tu crées ton planning</h3><p className="lp-step-desc">Personnalise ton organisation et démarre ta progression.</p></div>
+          </div></div>
+        </div>
+      </section>
+
+      <section className="lp-section lp-ambition"><div className="lp-ambition-inner reveal"><span className="lp-eyebrow">NOTRE AMBITION</span><h2 className="lp-title" style={{marginTop:12}}>Un écosystème sportif complet.</h2><p className="lp-text" style={{margin:'16px auto 0',textAlign:'center'}}>RUVY ambitionne de devenir un <strong>écosystème autour du sport</strong> : des Starter Packs adaptés à chaque discipline, et un planner intelligent pour suivre ta progression. Que tu sois <strong>débutant</strong> ou <strong>confirmé</strong>, RUVY t'accompagne à chaque étape.</p></div></section>
+
+      <section className="lp-section lp-faq"><div className="lp-section-inner lp-faq-layout"><div className="reveal"><span className="lp-eyebrow">ON T'EXPLIQUE</span><h2 className="lp-title">Questions fréquentes.</h2><p className="lp-text">Les infos essentielles avant de te lancer, quel que soit ton âge ou ton niveau.</p></div><div className="lp-faq-list reveal">
+        <details><summary>C'est quoi une box RUVY ?</summary><p>Un Starter Pack qui rassemble des accessoires utiles autour d'une discipline sportive pour démarrer ou pratiquer avec les essentiels à portée de main.</p></details>
+        <details><summary>À quoi sert le QR code dans la box ?</summary><p>Il te donne accès au RUVY Planner pour organiser ta semaine et personnaliser ton planning sportif, personnel et professionnel.</p></details>
+        <details><summary>Le Planner est-il payant ?</summary><p>Oui, le RUVY Planner est proposé en formule mensuelle, annuelle ou One-Shot. Les prix de base sont indiqués sur cette page.</p></details>
+        <details><summary>Comment fonctionne la réduction de 30% ?</summary><p>L'achat d'une box RUVY donne droit à -30% sur le Planner et les abonnements. Sans achat de box, les prix de base s'appliquent.</p></details>
+        <details><summary>Pour qui sont les boxs et le Planner ?</summary><p>Pour les sportifs de tout âge, débutants comme confirmés, qui souhaitent s'équiper et organiser leur pratique à leur rythme.</p></details>
+      </div></div></section>
+
+      <footer className="lp-footer"><p className="lp-footer-signature">RUVY — <em>Ton sport.</em> Ton Starter Pack. Ton départ.</p><div className="lp-footer-social"><span className="lp-delivery">Livraison des boxs · modalités et délais précisés sur la boutique</span><a className="lp-social" href="https://www.instagram.com/ruvy.fr/" target="_blank" rel="noopener noreferrer">Instagram · ruvy.fr</a><a className="lp-social" href="https://www.tiktok.com/@ruvy4511" target="_blank" rel="noopener noreferrer">TikTok · @ruvy4511</a><a className="lp-footer-link" href={SHOPIFY_URL} target="_blank" rel="noopener noreferrer">Visiter la boutique</a></div></footer>
+    </div>
+  );
+}
+
+
 
 const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
 const SHORT = { Lundi: "Lun", Mardi: "Mar", Mercredi: "Mer", Jeudi: "Jeu", Vendredi: "Ven", Samedi: "Sam", Dimanche: "Dim" };
