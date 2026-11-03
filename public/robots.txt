@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://ruvy.fr/sitemap.xml
