@@ -8,6 +8,7 @@ const BOXES = [
   {
     id: "jjb",
     name: "JJB",
+    sport: "JIU-JITSU",
     color: "#E8B923",
     title: "Les essentiels du Jiu-Jitsu brésilien",
     image: "/box-jjb.jpg",
@@ -22,6 +23,7 @@ const BOXES = [
   {
     id: "run",
     name: "RUN",
+    sport: "COURSE",
     color: "#F37021",
     title: "Les accessoires pour courir confortablement",
     image: "/box-run.jpg",
@@ -36,6 +38,7 @@ const BOXES = [
   {
     id: "gym",
     name: "GYM",
+    sport: "MUSCU",
     color: "#9A9A9A",
     title: "Les indispensables de la musculation",
     image: "/box-gym.jpg",
@@ -50,6 +53,7 @@ const BOXES = [
   {
     id: "bachata",
     name: "BACHATA",
+    sport: "DANSE",
     color: "#E3262E",
     title: "Les essentiels pour profiter pleinement de la danse",
     image: "/box-bachata.jpg",
@@ -152,18 +156,17 @@ const landingCss = `
 .lp-scroll-cue{position:absolute;bottom:24px;left:max(6vw,22px);color:#9fa19d;font-size:.65rem;letter-spacing:.2em}
 .lp-section{padding:88px max(6vw,22px);position:relative}.lp-section-inner{width:min(1160px,100%);margin:0 auto}.lp-eyebrow{display:block;color:var(--lp-orange);font-weight:900;font-size:.7rem;letter-spacing:.2em;text-transform:uppercase;margin-bottom:13px}.lp-title{font-size:clamp(2.1rem,4.3vw,3.6rem);margin:0 0 16px;color:#f7f4ec;-webkit-text-fill-color:#f7f4ec}.lp-text{color:#c3c5c2;font-size:1rem;line-height:1.75;max-width:770px;margin:0}.lp-text strong{color:#fff}.lp-orange{color:#ff9756}
 .lp-about{background:#141615;border-top:1px solid rgba(255,255,255,.05);border-bottom:1px solid rgba(255,255,255,.05)}.lp-about-grid{display:grid;grid-template-columns:1fr .85fr;gap:58px;align-items:center}.lp-about-card{position:relative;border:1px solid rgba(213,173,85,.25);background:linear-gradient(135deg,#20221f,#101211);border-radius:12px;padding:28px;overflow:hidden}.lp-about-card:after{content:"";position:absolute;right:-65px;top:-90px;width:240px;height:240px;border:1px solid rgba(213,173,85,.16);border-radius:50%;box-shadow:0 0 0 24px rgba(213,173,85,.025),0 0 0 48px rgba(213,173,85,.02)}.lp-about-card h3{font-size:1.15rem;margin:0 0 10px;position:relative;z-index:1}.lp-about-card p{position:relative;z-index:1;color:#c3c5c2;line-height:1.7;margin:0}.lp-about-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:27px}.lp-stat{padding:16px 13px;border-top:2px solid var(--lp-gold);background:rgba(255,255,255,.035)}.lp-stat strong{display:block;color:#f1d18a;font-size:1.6rem;line-height:1.15}.lp-stat span{display:block;color:#b3b5b1;font-size:.68rem;margin-top:6px}
-.lp-slider{--halo:#d5ad55;position:relative;padding:78px max(4vw,18px) 88px;background:#080909;overflow:hidden}.lp-slider:before{content:"";position:absolute;inset:0;background:radial-gradient(ellipse at 50% 0%,color-mix(in srgb,var(--halo) 12%,transparent),transparent 55%);pointer-events:none}.lp-slider-heading{max-width:1160px;margin:0 auto 26px;position:relative}.lp-slider-heading h2{font-family:Anton,Impact,sans-serif;font-size:clamp(2rem,4vw,3.2rem);text-transform:uppercase;margin:0;color:#f7f4ec}.lp-slider-heading p{color:#aeb0ac;margin:7px 0 0}.lp-box-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:15px;max-width:1160px;margin:0 auto;position:relative}.lp-box-tile{display:grid;grid-template-columns:minmax(100px,.7fr) 1fr;align-items:center;gap:14px;min-height:185px;padding:16px;border:1px solid rgba(255,255,255,.1);border-radius:10px;background:linear-gradient(145deg,#171918,#101111);color:#f5f5f2;text-align:left;cursor:pointer;transition:transform .25s,border-color .25s,background .25s}.lp-box-tile:hover{transform:translateY(-3px);border-color:var(--tile-color)}.lp-box-tile.active{border-color:var(--tile-color);background:linear-gradient(145deg,#22231f,#121313);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--tile-color) 20%,transparent)}.lp-tile-photo{width:100%;height:132px;object-fit:contain;filter:drop-shadow(0 8px 15px color-mix(in srgb,var(--tile-color) 24%,transparent))}.lp-slide-photo{display:block;width:100%;height:132px;object-fit:contain;transform:perspective(700px);transition:transform .2s ease}.lp-slide-photo-fallback{height:132px;border-radius:7px;display:grid;place-items:center;background:radial-gradient(circle,color-mix(in srgb,var(--halo) 24%,#171817),#101111 70%);font-family:Anton,Impact,sans-serif;font-size:1.6rem;color:var(--halo)}.lp-tile-copy{min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:5px}.lp-tile-title{display:block;margin:5px 0 7px;line-height:1.1}.lp-tile-desc{display:block}.lp-tile-index{font-size:.61rem;color:var(--tile-color);font-weight:900;letter-spacing:.13em}.lp-tile-title{font-family:Anton,Impact,sans-serif;font-size:1.45rem;margin:4px 0 5px}.lp-tile-desc{font-size:.71rem;line-height:1.5;color:#b9bbb7}.lp-slider-controls{max-width:1160px;margin:18px auto 0;display:flex;align-items:center;justify-content:space-between;gap:12px;position:relative}.lp-slider-arrows{display:flex;gap:8px}.lp-slider-arrow{width:40px;height:40px;border:1px solid #555954;background:#171918;color:#fff;border-radius:50%;font-size:1.4rem;cursor:pointer}.lp-slider-arrow:hover{border-color:var(--lp-orange);color:var(--lp-orange)}.lp-slider-position{font-size:.71rem;letter-spacing:.12em;color:#aaa}.lp-slider-dots{display:flex;gap:8px;align-items:center}.lp-dot{width:8px;height:8px;padding:0;border:0;border-radius:50%;background:#555;cursor:pointer}.lp-dot.is-active{width:22px;border-radius:9px;background:var(--lp-orange)}.lp-products-panel{max-width:1160px;margin:28px auto 0;padding:24px;border:1px solid rgba(255,255,255,.09);border-radius:10px;background:#121414;position:relative}.lp-products-panel h3{font-family:Anton,Impact,sans-serif;font-size:1.5rem;text-transform:uppercase;margin:0 0 6px}.lp-products-panel>p{color:#acafaa;margin:0 0 18px}.lp-products{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}.lp-product{padding:13px;background:#1b1e1c;border-radius:6px}.lp-product-name{display:block;font-size:.76rem;font-weight:800;color:#f2f1eb;margin-bottom:5px}.lp-product-desc{display:block;color:#aaada8;font-size:.67rem;line-height:1.5}.lp-coming-soon{text-align:center;color:#878b86;font-size:.8rem;margin:22px 0 0}.lp-shop-link{display:block;text-align:center;margin-top:14px}.lp-footer-link{color:#e8bd75;font-weight:800;font-size:.77rem;text-decoration:none}.lp-footer-link:hover{color:#fff}.legal-footer-button{border:0;background:none;font:inherit;cursor:pointer;padding:0}
+.lp-slider{--halo:#d5ad55;position:relative;padding:78px max(4vw,18px) 88px;background:#080909;overflow:hidden}.lp-slider:before{content:"";position:absolute;inset:0;background:radial-gradient(ellipse at 50% 0%,color-mix(in srgb,var(--halo) 12%,transparent),transparent 55%);pointer-events:none}.lp-slider-heading{max-width:1160px;margin:0 auto 26px;position:relative}.lp-slider-heading h2{font-family:Anton,Impact,sans-serif;font-size:clamp(2rem,4vw,3.2rem);text-transform:uppercase;margin:0;color:#f7f4ec}.lp-slider-heading p{color:#aeb0ac;margin:7px 0 0}.lp-box-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:15px;max-width:1160px;margin:0 auto;position:relative}.lp-box-tile{display:grid;grid-template-columns:minmax(100px,.7fr) 1fr;align-items:center;gap:14px;min-height:185px;padding:16px;border:1px solid rgba(255,255,255,.1);border-radius:10px;background:linear-gradient(145deg,#171918,#101111);color:#f5f5f2;text-align:left;cursor:pointer;transition:transform .25s,border-color .25s,background .25s}.lp-box-tile:hover{transform:translateY(-3px);border-color:var(--tile-color)}.lp-box-tile.active{border-color:var(--tile-color);background:linear-gradient(145deg,#22231f,#121313);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--tile-color) 20%,transparent)}.lp-tile-photo{width:100%;height:132px;object-fit:contain;filter:drop-shadow(0 8px 15px color-mix(in srgb,var(--tile-color) 24%,transparent))}.lp-slide-photo{display:block;width:100%;height:132px;object-fit:contain;transform:perspective(700px);transition:transform .2s ease}.lp-slide-photo-fallback{height:132px;border-radius:7px;display:grid;place-items:center;background:radial-gradient(circle,color-mix(in srgb,var(--halo) 24%,#171817),#101111 70%);font-family:Anton,Impact,sans-serif;font-size:1.6rem;color:var(--halo)}.lp-tile-copy{min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:5px}.lp-tile-title{display:block;margin:5px 0 7px;line-height:1.1}.lp-tile-desc{display:block}.lp-tile-index{display:inline-flex;padding:5px 7px;border-radius:999px;background:color-mix(in srgb,var(--tile-color) 15%,#171918);font-size:.61rem;color:var(--tile-color);font-weight:900;letter-spacing:.08em}.lp-tile-title{font-family:Anton,Impact,sans-serif;font-size:1.45rem;margin:4px 0 5px}.lp-tile-desc{font-size:.71rem;line-height:1.5;color:#b9bbb7}.lp-products-panel{max-width:1160px;margin:28px auto 0;padding:24px;border:1px solid rgba(255,255,255,.09);border-radius:10px;background:#121414;position:relative}.lp-products-panel h3{font-family:Anton,Impact,sans-serif;font-size:1.5rem;text-transform:uppercase;margin:0 0 6px}.lp-products-panel>p{color:#acafaa;margin:0 0 18px}.lp-products{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}.lp-product{padding:13px;background:#1b1e1c;border-radius:6px}.lp-product-name{display:block;font-size:.76rem;font-weight:800;color:#f2f1eb;margin-bottom:5px}.lp-product-desc{display:block;color:#aaada8;font-size:.67rem;line-height:1.5}.lp-coming-soon{text-align:center;color:#878b86;font-size:.8rem;margin:22px 0 0}.lp-shop-link{display:block;text-align:center;margin-top:14px}.lp-footer-link{color:#e8bd75;font-weight:800;font-size:.77rem;text-decoration:none}.lp-footer-link:hover{color:#fff}.legal-footer-button{border:0;background:none;font:inherit;cursor:pointer;padding:0}
 .lp-planner{background:linear-gradient(120deg,#191a17,#121411 50%,#191711);border-top:1px solid rgba(213,173,85,.13);border-bottom:1px solid rgba(213,173,85,.13)}.lp-planner-layout{display:grid;grid-template-columns:.85fr 1.15fr;gap:44px;align-items:center}.lp-planner-copy .lp-text{margin-bottom:23px}.lp-prices{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:19px}.lp-price{padding:14px 12px;border:1px solid rgba(255,255,255,.12);border-radius:7px;background:rgba(0,0,0,.18)}.lp-price span{display:block;color:#aeb0ac;font-size:.66rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em}.lp-price strong{display:block;margin-top:5px;color:#f4d593;font-size:1.04rem}.lp-discount{margin-top:12px;padding:13px 14px;border-left:3px solid var(--lp-orange);background:rgba(243,112,33,.09);font-size:.78rem;color:#e2e3dd;line-height:1.6}.lp-discount strong{color:#ff9b5d}.lp-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px;margin-top:30px;align-items:stretch}.lp-step{height:100%;min-height:182px;padding:19px 16px;border:1px solid rgba(255,255,255,.1);border-radius:8px;background:linear-gradient(145deg,#20221e,#151715);display:flex;flex-direction:column}.lp-step-num{color:var(--lp-orange);font-family:Anton,Impact,sans-serif;font-size:1.5rem;line-height:1}.lp-step-title{font-size:.89rem;margin:13px 0 8px}.lp-step-desc{font-size:.75rem;line-height:1.55;color:#b3b6b0;margin:0}.lp-planner-cta{margin-top:20px}
 .lp-ambition{background:linear-gradient(180deg,#0b0c0b,#11130f 55%,#0b0c0b);text-align:center}.lp-ambition-inner{max-width:850px;margin:auto}.lp-ambition .lp-text{margin:0 auto}.lp-faq{background:#151716}.lp-faq-layout{display:grid;grid-template-columns:.7fr 1.3fr;gap:48px}.lp-faq-list{border-top:1px solid rgba(255,255,255,.15)}.lp-faq details{border-bottom:1px solid rgba(255,255,255,.15)}.lp-faq summary{list-style:none;cursor:pointer;padding:18px 30px 18px 0;font-weight:800;font-size:.91rem;position:relative}.lp-faq summary::-webkit-details-marker{display:none}.lp-faq summary:after{content:"+";position:absolute;right:2px;color:var(--lp-orange);font-size:1.3rem;top:12px}.lp-faq details[open] summary:after{content:"−"}.lp-faq details p{margin:0;padding:0 28px 18px 0;color:#bfc1bd;font-size:.85rem;line-height:1.7}
 .lp-footer{padding:32px max(6vw,22px);display:flex;align-items:center;justify-content:space-between;gap:18px;background:#080909;border-top:1px solid rgba(255,255,255,.08)}.lp-footer-signature{margin:0;color:#d8d9d5;font-size:.86rem;font-weight:800}.lp-footer-signature em{color:#f3bd69;font-style:normal}.lp-footer-social{display:flex;align-items:center;flex-wrap:wrap;gap:16px}.lp-social{color:#d7d9d4;text-decoration:none;font-size:.77rem;font-weight:800}.lp-social:hover{color:var(--lp-orange)}.lp-delivery{font-size:.69rem;color:#92958f}
-@media(max-width:900px){.lp-hero{min-height:auto;padding-top:80px;padding-bottom:75px}.lp-hero-grid{grid-template-columns:1fr;max-width:720px}.lp-hero-copy{max-width:680px}.lp-planner-preview{transform:none}.lp-about-grid,.lp-planner-layout,.lp-faq-layout{grid-template-columns:1fr;gap:30px}.lp-box-row{grid-template-columns:repeat(2,minmax(0,1fr))}.lp-box-tile:last-child{display:none}.lp-products{grid-template-columns:repeat(3,minmax(0,1fr))}}
-@media(max-width:600px){.lp-section{padding:64px 20px}.lp-hero{padding:62px 20px 66px}.lp-hero-grid{gap:30px}.lp-headline{font-size:clamp(2.8rem,15vw,4.2rem)}.lp-planner-preview{padding:10px;border-radius:10px}.lp-preview-week{gap:4px}.lp-day{min-height:156px;padding:7px 3px}.lp-day-name{font-size:.49rem;letter-spacing:0}.lp-day-date{font-size:.48rem}.lp-event{font-size:clamp(.40rem,1.1vw,.55rem);padding:6px 3px;letter-spacing:-.015em}.lp-preview-label{font-size:.55rem}.lp-scroll-cue{left:20px}.lp-about-grid{gap:24px}.lp-about-stats{gap:6px}.lp-stat{padding:13px 8px}.lp-stat strong{font-size:1.3rem}.lp-stat span{font-size:.61rem}.lp-slider{padding:60px 16px 65px}.lp-box-row{grid-template-columns:1fr}.lp-box-tile:nth-child(n+2){display:none}.lp-box-tile{min-height:164px;grid-template-columns:125px 1fr}.lp-tile-photo,.lp-slide-photo-fallback{height:120px}.lp-products-panel{padding:18px}.lp-products{grid-template-columns:repeat(2,minmax(0,1fr))}.lp-prices{grid-template-columns:1fr;gap:7px}.lp-price{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 12px}.lp-price strong{margin:0}.lp-steps{grid-template-columns:1fr;gap:10px}.lp-step{min-height:0;padding:16px}.lp-footer{align-items:flex-start;flex-direction:column;padding:27px 20px}.lp-footer-social{gap:14px}.lp-slider-controls{justify-content:space-between}}
+@media(max-width:900px){.lp-hero{min-height:auto;padding-top:80px;padding-bottom:75px}.lp-hero-grid{grid-template-columns:1fr;max-width:720px}.lp-hero-copy{max-width:680px}.lp-planner-preview{transform:none}.lp-about-grid,.lp-planner-layout,.lp-faq-layout{grid-template-columns:1fr;gap:30px}.lp-box-row{grid-template-columns:repeat(2,minmax(0,1fr))}.lp-products{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:600px){.lp-section{padding:64px 20px}.lp-hero{padding:62px 20px 66px}.lp-hero-grid{gap:30px}.lp-headline{font-size:clamp(2.8rem,15vw,4.2rem)}.lp-planner-preview{padding:10px;border-radius:10px}.lp-preview-week{gap:4px}.lp-day{min-height:156px;padding:7px 3px}.lp-day-name{font-size:.49rem;letter-spacing:0}.lp-day-date{font-size:.48rem}.lp-event{font-size:clamp(.40rem,1.1vw,.55rem);padding:6px 3px;letter-spacing:-.015em}.lp-preview-label{font-size:.55rem}.lp-scroll-cue{left:20px}.lp-about-grid{gap:24px}.lp-about-stats{gap:6px}.lp-stat{padding:13px 8px}.lp-stat strong{font-size:1.3rem}.lp-stat span{font-size:.61rem}.lp-slider{padding:60px 16px 65px}.lp-box-row{display:flex;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;scrollbar-width:thin;padding:0 0 10px}.lp-box-tile{flex:0 0 min(86vw,340px);scroll-snap-align:start;min-height:164px;grid-template-columns:125px 1fr}.lp-tile-photo,.lp-slide-photo-fallback{height:120px}.lp-products-panel{padding:18px}.lp-products{grid-template-columns:repeat(2,minmax(0,1fr))}.lp-prices{grid-template-columns:1fr;gap:7px}.lp-price{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 12px}.lp-price strong{margin:0}.lp-steps{grid-template-columns:1fr;gap:10px}.lp-step{min-height:0;padding:16px}.lp-footer{align-items:flex-start;flex-direction:column;padding:27px 20px}.lp-footer-social{gap:14px}}
 @media(prefers-reduced-motion:reduce){.landing-root .reveal{opacity:1;transform:none;transition:none}.landing-root *{scroll-behavior:auto!important;transition-duration:.01ms!important}}
 `;
 
 function Landing({ onStart, onLegal }) {
-  const [slideIdx, setSlideIdx] = useState(0);
-  const touchStartX = useRef(null);
+  const [selectedBoxId, setSelectedBoxId] = useState(BOXES[0].id);
   useReveal();
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -174,24 +177,7 @@ function Landing({ onStart, onLegal }) {
     link.href = "https://fonts.googleapis.com/css2?family=Anton&family=Montserrat:wght@400;600;700;800;900&display=swap";
     document.head.appendChild(link);
   }, []);
-  const next = () => setSlideIdx((i) => (i + 1) % BOXES.length);
-  const prev = () => setSlideIdx((i) => (i - 1 + BOXES.length) % BOXES.length);
-  const goto = (i) => setSlideIdx(Math.max(0, Math.min(BOXES.length - 1, i)));
-  useEffect(() => {
-    function onKey(e) { if (e.key === "ArrowRight") next(); else if (e.key === "ArrowLeft") prev(); }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  function onTouchStart(e) { touchStartX.current = e.touches[0].clientX; }
-  function onTouchEnd(e) {
-    if (touchStartX.current == null) return;
-    const dx = e.changedTouches[0].clientX - touchStartX.current;
-    if (Math.abs(dx) > 40) { if (dx < 0) next(); else prev(); }
-    touchStartX.current = null;
-  }
-  const slide = BOXES[slideIdx];
-  const visibleBoxes = [0, 1, 2].map((offset) => BOXES[(slideIdx + offset) % BOXES.length]);
+  const selectedBox = BOXES.find((box) => box.id === selectedBoxId) || BOXES[0];
   return (
     <div className="landing-root">
       <style>{landingCss}</style>
@@ -232,16 +218,15 @@ function Landing({ onStart, onLegal }) {
         </div>
       </section>
 
-      <section className="lp-slider" style={{"--halo":slide.color}} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+      <section className="lp-slider" style={{"--halo":selectedBox.color}}>
         <div className="lp-slider-heading reveal"><span className="lp-eyebrow">TROUVE TON DÉPART</span><h2>Les boxs RUVY</h2><p>Quatre disciplines, des essentiels pensés pour la pratique.</p></div>
-        <div className="lp-box-row" aria-live="polite">
-          {visibleBoxes.map((box,position)=><button key={box.id} type="button" className={'lp-box-tile '+(position===0?'active':'')} style={{"--tile-color":box.color}} onClick={()=>goto(BOXES.findIndex((b)=>b.id===box.id))} aria-pressed={position===0} aria-label={`Box ${BOXES.findIndex((b)=>b.id===box.id)+1} sur 4 : ${box.name}${position===0?", sélectionnée":""}`}>
+        <div className="lp-box-row" aria-label="Choisir une box">
+          {BOXES.map((box)=><button key={box.id} type="button" className={'lp-box-tile '+(box.id===selectedBoxId?'active':'')} style={{"--tile-color":box.color}} onClick={()=>setSelectedBoxId(box.id)} aria-pressed={box.id===selectedBoxId} aria-label={`${box.name}${box.id===selectedBoxId?", sélectionnée":""}`}>
             <BoxImage src={box.image} alt={box.name} color={box.color} />
-            <span className="lp-tile-copy"><span className="lp-tile-index">BOX {BOXES.findIndex((b)=>b.id===box.id)+1} / 4</span><span className="lp-tile-title">{box.name}</span><span className="lp-tile-desc">{box.title}</span></span>
+            <span className="lp-tile-copy"><span className="lp-tile-index">{box.sport}</span><span className="lp-tile-title">{box.name}</span><span className="lp-tile-desc">{box.title}</span></span>
           </button>)}
         </div>
-        <div className="lp-slider-controls"><div className="lp-slider-arrows"><button type="button" className="lp-slider-arrow" aria-label="Précédent" onClick={prev}>‹</button><button type="button" className="lp-slider-arrow" aria-label="Suivant" onClick={next}>›</button></div><div className="lp-slider-dots" role="tablist" aria-label="Position dans les boxs">{BOXES.map((b,i)=><button key={b.id} type="button" className={'lp-dot'+(i===slideIdx?' is-active':'')} aria-label={'Afficher '+b.name} aria-selected={i===slideIdx} onClick={()=>goto(i)} />)}</div><span className="lp-slider-position">{slideIdx+1} / {BOXES.length}</span></div>
-        <div className="lp-products-panel reveal"><h3>{slide.name} — {slide.title}</h3><p>Une sélection d'essentiels pour ta pratique :</p><div className="lp-products">{slide.products.map((p)=><div key={p.name} className="lp-product"><span className="lp-product-name">{p.name}</span><span className="lp-product-desc">{p.desc}</span></div>)}</div></div>
+        <div className="lp-products-panel reveal"><h3>{selectedBox.name} — {selectedBox.title}</h3><p>Une sélection d'essentiels pour ta pratique :</p><div className="lp-products">{selectedBox.products.map((p)=><div key={p.name} className="lp-product"><span className="lp-product-name">{p.name}</span><span className="lp-product-desc">{p.desc}</span></div>)}</div></div>
         <p className="lp-coming-soon">D'autres disciplines arrivent bientôt.</p>
         <div className="lp-shop-link"><a className="lp-footer-link" href={SHOPIFY_URL} target="_blank" rel="noopener noreferrer">Voir toute la boutique</a></div>
       </section>
@@ -280,7 +265,7 @@ function Landing({ onStart, onLegal }) {
 
 const LEGAL_DOCS = {
   mentions: { title: "Mentions légales", body: <><h2>Éditeur du site</h2><p>Le site RUVY est édité par <strong>[ÉDITEUR À COMPLÉTER]</strong>, société de droit français.</p><ul><li>Numéro SIRET : <strong>[SIRET À COMPLÉTER]</strong></li><li>Adresse du siège : <strong>[ADRESSE À COMPLÉTER]</strong></li><li>Contact : <strong>[EMAIL DE CONTACT À COMPLÉTER]</strong></li></ul><h2>Hébergement</h2><p>Hébergeur : <strong>[NOM ET COORDONNÉES DE L’HÉBERGEUR À COMPLÉTER]</strong>.</p><p>Directeur ou directrice de la publication : <strong>[À COMPLÉTER]</strong>.</p></> },
-  privacy: { title: "Politique de confidentialité", body: <><p>Cette politique décrit les traitements opérés par l’application RUVY telle qu’implémentée dans ce fichier. Elle devra être complétée si le site déploie d’autres traitements.</p><h2>Données et stockage</h2><p>Les informations saisies pour créer et personnaliser un planning ainsi que certaines données d’accès sont enregistrées dans le stockage local (localStorage) du navigateur, sur l’appareil utilisé. Lors d’une demande de génération, le profil et les activités saisis sont également envoyés au serveur RUVY via le point d’accès /api/plan afin de produire le planning. L’éditeur doit préciser l’hébergement, les destinataires, les durées de conservation et les mesures de sécurité applicables à ce traitement. Les paiements sont initiés via Stripe ; consultez également les informations de confidentialité affichées par Stripe lors du paiement.</p><h2>Durée et contrôle</h2><p>Les données locales restent sur l’appareil jusqu’à leur suppression par l’utilisateur ou leur remplacement. Vous pouvez supprimer les données RUVY en effaçant le stockage du site depuis les paramètres de votre navigateur ; cette action peut supprimer vos plannings et informations d’accès enregistrés localement.</p><h2>Vos droits</h2><p>Pour toute demande d’accès, de rectification, d’effacement ou question relative aux données personnelles, contactez <strong>[EMAIL DE CONTACT À COMPLÉTER]</strong>. Une réponse et l’exercice effectif des droits peuvent nécessiter de compléter cette information selon les traitements réellement opérés par l’éditeur.</p><h2>Traceurs</h2><p>Aucun outil de mesure d’audience ou traceur publicitaire n’est activé par ce composant. La page charge toutefois les polices depuis Google Fonts et peut ouvrir des services tiers (boutique Shopify, paiement Stripe) à la demande ; les informations correspondantes doivent être présentées par les fournisseurs. Le choix de consentement est conservé en localStorage.</p></> },
+  privacy: { title: "Politique de confidentialité", body: <><p>Cette politique décrit les traitements opérés par l’application RUVY telle qu’implémentée dans ce fichier. Elle devra être complétée si le site déploie d’autres traitements.</p><h2>Données et stockage</h2><p>Les informations saisies pour créer et personnaliser un planning ainsi que les choix de consentement restent uniquement en mémoire pendant la session et disparaissent au rechargement de la page. Lors d’une demande de génération, le profil et les activités saisis sont envoyés au serveur RUVY via le point d’accès /api/plan afin de produire le planning. L’éditeur doit préciser l’hébergement, les destinataires, les durées de conservation et les mesures de sécurité applicables à ce traitement. Les paiements sont initiés via Stripe ; consultez également les informations de confidentialité affichées par Stripe lors du paiement.</p><h2>Durée et contrôle</h2><p>Les données de la session sont effacées lorsque la page est rechargée ou fermée. Aucun planning ni accès abonné n’est conservé dans le navigateur.</p><h2>Vos droits</h2><p>Pour toute demande d’accès, de rectification, d’effacement ou question relative aux données personnelles, contactez <strong>[EMAIL DE CONTACT À COMPLÉTER]</strong>. Une réponse et l’exercice effectif des droits peuvent nécessiter de compléter cette information selon les traitements réellement opérés par l’éditeur.</p><h2>Traceurs</h2><p>Aucun outil de mesure d’audience ou traceur publicitaire n’est activé par ce composant. La page charge toutefois les polices depuis Google Fonts et peut ouvrir des services tiers (boutique Shopify, paiement Stripe) à la demande ; les informations correspondantes doivent être présentées par les fournisseurs. Le choix de consentement reste en mémoire uniquement pendant la session.</p></> },
   terms: { title: "Conditions générales d’utilisation et de vente", body: <><p>Ces dispositions doivent être relues et complétées par l’éditeur avant toute mise en vente. L’achat des boxs est réalisé sur la boutique externe, sous réserve de ses conditions applicables.</p><h2>RUVY Planner et tarifs</h2><p>Les formules présentées sont : Mensuel 3,99 € par mois ; Annuel 29,99 € par an ; One-Shot 14,99 € en paiement unique. Les acheteurs d’une box bénéficient de la remise annoncée de 30 % sur le Planner et les abonnements, selon les modalités applicables à l’offre. Le paiement est traité via Stripe. L’accès payant doit être confirmé par le système de paiement ; la sélection d’une formule seule ne vaut pas preuve de paiement.</p><h2>Rétractation</h2><p>Le consommateur bénéficie en principe d’un délai de rétractation de 14 jours pour les contrats conclus à distance, sous réserve des exceptions légales. Pour la fourniture immédiate d’un contenu numérique non fourni sur support matériel, le démarrage avant la fin de ce délai requiert le consentement exprès préalable du consommateur et sa reconnaissance de la perte de son droit de rétractation, dans les conditions prévues par la loi. Le parcours de commande doit recueillir ces consentements et confirmations distinctement ; leur mise en place doit être vérifiée avant commercialisation.</p><h2>Contact et litiges</h2><p>Pour toute question ou réclamation : <strong>[EMAIL DE CONTACT À COMPLÉTER]</strong>. Éditeur : <strong>[IDENTITÉ, ADRESSE ET SIRET À COMPLÉTER]</strong>. Les informations de médiation de la consommation et les autres mentions obligatoires applicables sont à compléter par le professionnel avant vente.</p></> }
 };
 function LegalPage({ kind, onBack }) {
@@ -289,7 +274,7 @@ function LegalPage({ kind, onBack }) {
 }
 function CookieNotice({ choice, setChoice }) {
   if (choice) return null;
-  return <aside className="ruvy-cookie" role="region" aria-label="Choix des cookies"><style>{`.ruvy-cookie{position:fixed;z-index:10000;left:16px;right:16px;bottom:16px;max-width:790px;margin:auto;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:14px 16px;border:1px solid rgba(213,173,85,.35);border-radius:9px;background:rgba(18,20,19,.97);color:#f2f0e9;box-shadow:0 12px 40px #0009;font:13px/1.5 Montserrat,system-ui,sans-serif}.ruvy-cookie p{margin:0}.ruvy-cookie-actions{display:flex;gap:8px;flex-shrink:0}.ruvy-cookie button{padding:9px 13px;border:1px solid #8e7a51;border-radius:5px;background:transparent;color:#fff;font-weight:800;cursor:pointer}.ruvy-cookie button:first-child{background:#f37021;border-color:#f37021}@media(max-width:580px){.ruvy-cookie{align-items:stretch;flex-direction:column}.ruvy-cookie-actions{justify-content:flex-end}}`}</style><p>Ce site n’active aucun outil de suivi. Votre choix est enregistré sur cet appareil ; vous pouvez refuser.</p><div className="ruvy-cookie-actions"><button type="button" onClick={()=>setChoice("accepted")}>Accepter</button><button type="button" onClick={()=>setChoice("refused")}>Refuser</button></div></aside>;
+  return <aside className="ruvy-cookie" role="region" aria-label="Choix des cookies"><style>{`.ruvy-cookie{position:fixed;z-index:10000;left:16px;right:16px;bottom:16px;max-width:790px;margin:auto;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:14px 16px;border:1px solid rgba(213,173,85,.35);border-radius:9px;background:rgba(18,20,19,.97);color:#f2f0e9;box-shadow:0 12px 40px #0009;font:13px/1.5 Montserrat,system-ui,sans-serif}.ruvy-cookie p{margin:0}.ruvy-cookie-actions{display:flex;gap:8px;flex-shrink:0}.ruvy-cookie button{padding:9px 13px;border:1px solid #8e7a51;border-radius:5px;background:transparent;color:#fff;font-weight:800;cursor:pointer}.ruvy-cookie button:first-child{background:#f37021;border-color:#f37021}@media(max-width:580px){.ruvy-cookie{align-items:stretch;flex-direction:column}.ruvy-cookie-actions{justify-content:flex-end}}`}</style><p>Ce site n’active aucun outil de suivi. Votre choix est valable pour cette session ; vous pouvez refuser.</p><div className="ruvy-cookie-actions"><button type="button" onClick={()=>setChoice("accepted")}>Accepter</button><button type="button" onClick={()=>setChoice("refused")}>Refuser</button></div></aside>;
 }
 
 const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
@@ -322,8 +307,11 @@ const CATEGORIES = [
   { name: "Travail", words: ["travail", "boulot", "bureau", "cours", "école", "ecole", "fac"] },
 ];
 
-const STORAGE_KEY = "ruvy-planner-v2";
-const ACCESS_STORAGE_KEY = "ruvy-planner-access-v1";
+const PROMO_CODES = {
+  MIMS100: { type: "free" },
+  // Ajouter ici les nouveaux codes : CODE30: { type: "percent", discount: 30 },
+  // ou CODE40: { type: "percent", discount: 40 },
+};
 const STRIPE_LINKS = {
   mensuel: "https://buy.stripe.com/REMPLACER_MENSUEL",
   annuel: "https://buy.stripe.com/test_eVq7sNb307nRbBs0Pu8IU00",
@@ -406,28 +394,6 @@ function withoutEventCoordinates(result) {
   };
 }
 
-function loadSaved() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const saved = JSON.parse(raw);
-    if (Array.isArray(saved?.people)) {
-      saved.people = saved.people.map((p) => {
-        const clean = Object.fromEntries(Object.entries(p || {}).filter(([key]) => !key.startsWith("pref")));
-        const hour = (value, fallback) => {
-          const n = Number(String(value ?? "").split(":")[0]);
-          return Number.isFinite(n) ? Math.max(5, Math.min(23, n)) : fallback;
-        };
-        return { ...emptyPerson(clean.name || "Toi"), ...clean, firstSessionHour: hour(clean.firstSessionHour, 6), lastSessionHour: hour(clean.lastSessionHour, 22) };
-      });
-    }
-    saved.result = withoutEventCoordinates(saved.result);
-    return saved;
-  } catch {
-    return null;
-  }
-}
-
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -438,31 +404,23 @@ function fileToDataUrl(file) {
 }
 
 export default function App() {
-  const saved = useRef(loadSaved()).current;
   const [showLanding, setShowLanding] = useState(true);
   const [showPricing, setShowPricing] = useState(false);
   const [legalPage, setLegalPage] = useState("");
-  const [cookieChoice, setCookieChoice] = useState(() => { try { return localStorage.getItem("ruvy_cookie_choice") || ""; } catch { return ""; } });
-  const [access, setAccess] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem(ACCESS_STORAGE_KEY) || "null");
-    } catch {
-      return null;
-    }
-  });
+  const [cookieChoice, setCookieChoice] = useState("");
   const [referralCode, setReferralCode] = useState("");
+  const [appliedPromo, setAppliedPromo] = useState(null);
   const [referralMessage, setReferralMessage] = useState("");
-  const [pricingNotice, setPricingNotice] = useState("");
 
-  const [couple, setCouple] = useState(saved?.couple ?? false);
-  const [people, setPeople] = useState(saved?.people ?? [emptyPerson("Toi")]);
+  const [couple, setCouple] = useState(false);
+  const [people, setPeople] = useState([emptyPerson("Toi")]);
   const [active, setActive] = useState(0);
-  const [step, setStep] = useState(saved?.result ? 4 : Math.min(saved?.step ?? 0, 2));
+  const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [cinematic, setCinematic] = useState(false);
   const [editorTab, setEditorTab] = useState("colors");
   const [error, setError] = useState("");
-  const [result, setResult] = useState(saved?.result ?? null);
+  const [result, setResult] = useState(null);
   const [style, setStyle] = useState({ ...defaultStyle });
   const [paintTool, setPaintTool] = useState("pen");
   const [paintColor, setPaintColor] = useState("#c084fc");
@@ -490,38 +448,30 @@ export default function App() {
 
   const person = people[active] || people[0];
   const progress = Math.round((Math.min(step, 2) / 2) * 100);
-
-  const saveAccess = (record) => {
-    try {
-      localStorage.setItem(ACCESS_STORAGE_KEY, JSON.stringify(record));
-      setAccess(record);
-      return true;
-    } catch {
-      setError("Impossible d'enregistrer l'accès sur cet appareil. Vérifie les réglages de stockage du navigateur.");
-      return false;
-    }
-  };
+  const discountedPrice = (amount) => (amount * (1 - appliedPromo.discount / 100)).toFixed(2).replace(".", ",");
+  const renderPrice = (amount, suffix) => appliedPromo?.type === "percent" ? <><s>{amount.toFixed(2).replace(".", ",")} <span>{suffix}</span></s> <strong>{discountedPrice(amount)} <span>{suffix}</span></strong></> : <>{amount.toFixed(2).replace(".", ",")} <span>{suffix}</span></>;
 
   const selectPlan = (plan) => {
-    // Mémorise l’offre avant la redirection ; le paiement doit être confirmé côté serveur.
-    if (!saveAccess({ unlocked: false, type: "plan", plan, status: "pending_payment", selectedAt: new Date().toISOString() })) return;
     window.location.href = STRIPE_LINKS[plan];
   };
 
-  const applyReferralCode = (event) => {
+  const applyPromoCode = (event) => {
     event.preventDefault();
-    if (referralCode.trim().toUpperCase() !== "MIMIS100") {
+    const code = referralCode.trim().toUpperCase();
+    const promotion = PROMO_CODES[code];
+    if (!promotion) {
+      setAppliedPromo(null);
       setReferralMessage("Code invalide. Vérifie le code et réessaie.");
       return;
     }
-    const record = { unlocked: true, type: "referral", code: "MIMIS100", appliedAt: new Date().toISOString() };
-    if (!saveAccess(record)) return;
     setReferralMessage("");
-    setPricingNotice("Code MIMIS100 appliqué : ton accès gratuit est activé !");
-    setShowPricing(false);
-    setShowLanding(false);
-    setStep(0);
-    window.scrollTo(0, 0);
+    setAppliedPromo({ code, ...promotion });
+    if (promotion.type === "free") {
+      setShowPricing(false);
+      setShowLanding(false);
+      setStep(0);
+      window.scrollTo(0, 0);
+    }
   };
 
   useEffect(() => {
@@ -536,24 +486,10 @@ export default function App() {
     setMeta('meta[property="og:image"]', "property", "og:image", "https://ruvy.fr/og-image.jpg");
     let icon = document.head.querySelector('link[rel="icon"]'); if (!icon) { icon=document.createElement("link"); icon.rel="icon"; icon.href="/favicon.ico"; document.head.appendChild(icon); }
   }, [legalPage, showPricing, showLanding]);
-  useEffect(() => { try { if (cookieChoice) localStorage.setItem("ruvy_cookie_choice", cookieChoice); } catch {} }, [cookieChoice]);
-
   useEffect(() => {
     document.documentElement.classList.toggle("editor-active", !showLanding && step === 4);
     return () => document.documentElement.classList.remove("editor-active");
   }, [step, showLanding]);
-
-  // ----- Sauvegarde automatique -----
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ couple, people, step, result })
-      );
-    } catch (e) {
-      // quota dépassé (images trop lourdes) : on ignore sans casser l'app
-    }
-  }, [couple, people, step, result]);
 
   const update = (patch) =>
     setPeople((prev) => prev.map((p, i) => (i === active ? { ...p, ...patch } : p)));
@@ -632,6 +568,8 @@ export default function App() {
       if (!r.ok) throw new Error("Erreur serveur");
       const data = await r.json();
       setResult(withoutEventCoordinates(data));
+      setAppliedPromo(null);
+      setReferralCode("");
       setStep(4);
       setActive(0);
       setEditing(null);
@@ -1099,12 +1037,8 @@ export default function App() {
   if (showLanding) {
     return <><Landing onLegal={setLegalPage} onStart={() => {
       setShowLanding(false);
-      if (access?.unlocked) {
-        setStep(0);
-      } else {
-        setReferralMessage("");
-        setShowPricing(true);
-      }
+      setReferralMessage("");
+      setShowPricing(true);
       window.scrollTo(0, 0);
     }} /><CookieNotice choice={cookieChoice} setChoice={setCookieChoice} /></>;
   }
@@ -1123,7 +1057,7 @@ export default function App() {
           <article className="pricing-card">
             <p className="pricing-kicker">LIBERTÉ</p>
             <h2>RUVY Planner - Mensuel</h2>
-            <p className="pricing-price">3,99 <span>€/mois</span></p>
+            <p className="pricing-price">{renderPrice(3.99, "€/mois")}</p>
             <p className="pricing-detail">Facturé chaque mois</p>
             <button type="button" className="pricing-choose" onClick={() => selectPlan("mensuel")}>Choisir le mensuel <span>↗</span></button>
           </article>
@@ -1131,23 +1065,24 @@ export default function App() {
             <span className="pricing-badge">LE PLUS AVANTAGEUX</span>
             <p className="pricing-kicker">MEILLEURE VALEUR</p>
             <h2>RUVY Planner - Annuel</h2>
-            <p className="pricing-price">29,99 <span>€/an</span></p>
-            <p className="pricing-detail">≈ 2,50 €/mois · Économise 17,89 € / an (≈ 37 %)</p>
+            <p className="pricing-price">{renderPrice(29.99, "€/an")}</p>
+            <p className="pricing-detail">{appliedPromo?.type === "percent" ? `Code ${appliedPromo.code} appliqué : -${appliedPromo.discount} %` : "≈ 2,50 €/mois · Économise 17,89 € / an (≈ 37 %)"}</p>
             <button type="button" className="pricing-choose" onClick={() => selectPlan("annuel")}>Choisir l'annuel <span>↗</span></button>
           </article>
           <article className="pricing-card">
             <p className="pricing-kicker">SANS ABONNEMENT</p>
             <h2>RUVY Planner - One-Shot</h2>
-            <p className="pricing-price">14,99 <span>€</span></p>
+            <p className="pricing-price">{renderPrice(14.99, "€")}</p>
             <p className="pricing-detail">Paiement unique</p>
             <button type="button" className="pricing-choose" onClick={() => selectPlan("oneshot")}>Choisir le paiement unique <span>↗</span></button>
           </article>
         </section>
-        <form className="referral-box" onSubmit={applyReferralCode}>
-          <label htmlFor="ruvy-referral">Tu as un code de parrainage ?</label>
-          <p>Entre-le ici pour débloquer ton accès.</p>
+        <form className="referral-box" onSubmit={applyPromoCode}>
+          <label htmlFor="ruvy-referral">Tu as un code promo ?</label>
+          <p>Entre-le ici pour débloquer l’accès ou bénéficier d’une réduction.</p>
           <div className="referral-row">
-            <input id="ruvy-referral" className="input" value={referralCode} onChange={(event) => { setReferralCode(event.target.value); setReferralMessage(""); }} placeholder="Code de parrainage" autoComplete="off" />
+            <input id="ruvy-referral" className="input" value={referralCode} onChange={(event) => { setReferralCode(event.target.value); setAppliedPromo(null); setReferralMessage(""); }} placeholder="Code promo" autoComplete="off" />
+            {appliedPromo?.type === "percent" && <button type="button" className="pricing-remove-code" onClick={() => { setAppliedPromo(null); setReferralCode(""); setReferralMessage(""); }}>Retirer le code</button>}
             <button type="submit" className="pricing-redeem">Appliquer</button>
           </div>
           {referralMessage && <p className="referral-error" role="alert">{referralMessage}</p>}
@@ -1161,7 +1096,6 @@ export default function App() {
     <div className="app">
       <style>{css}</style>
 
-      {pricingNotice && <div className="access-success" role="status">✓ {pricingNotice}<button type="button" aria-label="Fermer" onClick={() => setPricingNotice("")}>×</button></div>}
       {cinematic && (
         <div className="cinematic no-print" role="status" aria-live="polite">
           <button type="button" className="btn ghost cinematic-home" onClick={goHome}>← Retour à l'accueil</button>
@@ -1417,7 +1351,7 @@ export default function App() {
               </div>
             </aside>
             <section className="editor-panel">
-              <div className="editor-panel-head"><div><span className="eyebrow">PERSONNALISATION</span><h2>{editorTab === "colors" ? "Donne-lui ta couleur" : editorTab === "stickers" ? "Ajoute ton énergie" : "Ajuste tes séances"}</h2></div><span className="editor-status">● Sauvegardé</span></div>
+              <div className="editor-panel-head"><div><span className="eyebrow">PERSONNALISATION</span><h2>{editorTab === "colors" ? "Donne-lui ta couleur" : editorTab === "stickers" ? "Ajoute ton énergie" : "Ajuste tes séances"}</h2></div><span className="editor-status">● Session uniquement</span></div>
               {editorTab === "colors" && <div className="control-grid">
                 <label className="label">Titre du planning<input className="input full" value={style.title} onChange={(e) => setStyleKey({ title: e.target.value })} /></label>
                 <div className="color-grid"><label className="field">Fond<input type="color" className="color" value={style.bgColor} onChange={(e) => setStyleKey({ bgColor: e.target.value, background: "", dayColor: e.target.value })} /></label><label className="field">Accent<input type="color" className="color" value={style.accent} onChange={(e) => setStyleKey({ accent: e.target.value })} /></label><label className="field">Texte<input type="color" className="color" value={style.textColor || "#151515"} onChange={(e) => setStyleKey({ textColor: e.target.value })} /></label></div>
@@ -1426,7 +1360,7 @@ export default function App() {
               </div>}
               {editorTab === "paint" && <div className="control-grid"><p className="hint">Dessine directement sur le planning. Le pot colore la zone ciblée, la pipette reprend une couleur, et les personnalisations restent en mémoire uniquement pendant cette session.</p><div className="paint-tools"><button className={paintTool === "move" ? "paint-tool active" : "paint-tool"} onClick={() => selectPaintTool("move")}>↖<small>Clic normal</small></button>{[["pen","✎","Stylo"],["bucket","▧","Pot"],["eraser","⌫","Gomme"],["picker","⌾","Pipette"],["marker","▰","Surligneur"]].map(([id,icon,label]) => <button key={id} className={paintTool===id ? "paint-tool active" : "paint-tool"} onClick={() => selectPaintTool(id)}>{icon}<small>{label}</small></button>)}</div><label className="label">Épaisseur : {paintSize}px<input type="range" min="2" max="32" value={paintSize} onChange={(e) => setPaintSize(Number(e.target.value))} /></label><label className="label">Couleur<input type="color" className="color" value={paintColor} onChange={(e) => setPaintColor(e.target.value)} /></label><div className="paint-actions"><button className="theme" onClick={undoPaint}>↶ Annuler</button><button className="theme" onClick={redoPaint}>↷ Rétablir</button></div><label className="label">Fond du planning<select className="input" value={paintBackground} onChange={(e) => { setPaintBackground(e.target.value); setStyleKey({ bgColor: e.target.value, background: "", dayColor: e.target.value }); }}><option value="#18132c">Violet profond</option><option value="#25143d">Prune</option><option value="#172554">Bleu nuit</option><option value="#1f2937">Ardoise</option></select></label></div>}
               {editorTab === "stickers" && <div className="control-grid"><p className="hint">Choisis un signe distinctif, puis ajoute des images par jour comme arrière-plan ou logo.</p><div className="sticker-palette">{["🔥","⚡","🏋️","🥊","🏃","🧘","🚴","🏆","💪","🌙"].map((x) => <button key={x} className="sticker-btn" onClick={() => addSticker(x)}>{x}</button>)}</div><label className="label">Images / logos par jour</label><div className="day-images">{DAYS.map((d) => <div key={d} className="day-image-row"><span>{SHORT[d]}</span><input type="file" accept="image/*" onChange={(e) => onDayImage(d, e)} />{style.dayImages[d] && <img src={style.dayImages[d]} alt={`Miniature ${SHORT[d]}`} />}{style.dayImages[d] && <button className="link" onClick={() => removeDayImage(d)}>Retirer</button>}</div>)}</div>{Object.keys(style.dayImages).length > 0 && <label className="field slider">Transparence : {Math.round(style.dayImageOpacity * 100)} %<input type="range" min="0" max="1" step="0.05" value={style.dayImageOpacity} onChange={(e) => setStyleKey({ dayImageOpacity: Number(e.target.value) })} /></label>}<div className="sticker-list">{(style.stickers || []).map((s, i) => <button key={i} className="sticker-chip" onClick={() => removeSticker(i)}>{s.emoji} <small>retirer</small></button>)}</div></div>}
-              {editorTab === "edit" && <div className="control-grid"><p className="hint">Clique sur une séance ajoutée dans le planning pour modifier son jour, ses horaires ou la supprimer.</p>{renderEditor()}<p className="warn-text editor-warning">⚠ Les séances ajoutées peuvent être décalées de 30 minutes maximum. Les avertissements restent sans blocage.</p></div>}
+              {editorTab === "edit" && <div className="control-grid"><p className="hint">Clique sur une séance ajoutée dans le planning pour modifier son jour, ses horaires ou la supprimer.</p>{renderEditor()}<p className="warn-text editor-warning">⚠ Attention, rien n’est sauvegardé : imprime ou télécharge ton planning avant de quitter.</p></div>}
             </section>
           </div>
 
@@ -1948,10 +1882,10 @@ html.editor-active .app {
 .referral-row .input { flex:1; min-width:0; background:#111; border-color:#484848; color:#fff; }
 .referral-row .input:focus { border-color:#f37021; box-shadow:0 0 0 3px rgba(243,112,33,.14); }
 .pricing-redeem { width:auto; min-width:130px; }
+.pricing-remove-code { min-height:48px; padding:10px 12px; border:1px solid #777; border-radius:10px; background:transparent; color:#f4f1ed; font:700 12px Montserrat,system-ui,sans-serif; cursor:pointer; white-space:nowrap; }
+.pricing-remove-code:hover { border-color:#f37021; color:#fff; }
 .referral-error { color:#ff7777 !important; font-weight:700; }
 .pricing-footnote { margin:18px 0 0; text-align:center; color:#777; font-size:11px; }
-.access-success { position:relative; display:flex; align-items:center; justify-content:space-between; gap:14px; margin:0 auto 18px; max-width:820px; padding:13px 16px; border:1px solid #83c99c; border-radius:12px; background:#eaf7ee; color:#14532d; font-weight:700; }
-.access-success button { border:0; background:transparent; color:inherit; font-size:22px; cursor:pointer; }
 @media(max-width:760px) { .pricing-page { padding:24px 14px 36px; }.pricing-header { padding-top:36px; }.pricing-back { top:0; }.pricing-grid { grid-template-columns:1fr; gap:12px; }.pricing-card { min-height:0; }.pricing-card-featured { transform:none; order:-1; }.pricing-card h2,.pricing-detail { min-height:0; }.pricing-choose { margin-top:8px; }.referral-box { padding:18px; } }
 @media(max-width:420px) { .referral-row { flex-direction:column; }.pricing-redeem { width:100%; } }
 `;
