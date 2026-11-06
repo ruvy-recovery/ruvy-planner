@@ -490,6 +490,10 @@ export default function App() {
     document.documentElement.classList.toggle("editor-active", !showLanding && step === 4);
     return () => document.documentElement.classList.remove("editor-active");
   }, [step, showLanding]);
+  useEffect(() => {
+    document.documentElement.classList.toggle("pricing-active", showPricing && !legalPage);
+    return () => document.documentElement.classList.remove("pricing-active");
+  }, [showPricing, legalPage]);
 
   const update = (patch) =>
     setPeople((prev) => prev.map((p, i) => (i === active ? { ...p, ...patch } : p)));
@@ -1852,7 +1856,9 @@ html.editor-active .app {
 
 
 /* RUVY Planner — parcours de choix tarifaire */
-.pricing-page { min-height:100vh; max-width:none; margin:0; padding:clamp(28px,6vw,76px) 24px 44px; color:#f4f1ed; background:#111; font-family:Montserrat, Inter, system-ui, sans-serif; }
+html.pricing-active, html.pricing-active body { min-height:100%; background:#111; }
+html.pricing-active body { min-width:100%; }
+.pricing-page { width:100%; min-height:100vh; max-width:none; margin:0; padding:clamp(28px,6vw,76px) 24px 44px; color:#f4f1ed; background:#111; font-family:Montserrat, Inter, system-ui, sans-serif; }
 .pricing-page * { box-sizing:border-box; }
 .pricing-header { max-width:1060px; margin:0 auto 38px; position:relative; text-align:center; }
 .pricing-back { position:absolute; left:0; top:0; padding:10px 14px; border:1px solid #484848; border-radius:999px; background:transparent; color:#ddd; font:600 13px Montserrat,system-ui,sans-serif; cursor:pointer; }
@@ -1864,7 +1870,7 @@ html.editor-active .app {
 .pricing-grid { max-width:1060px; margin:0 auto; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); align-items:stretch; gap:16px; }
 .pricing-card { position:relative; display:flex; flex-direction:column; padding:28px 24px 24px; min-height:270px; background:#1b1b1b; border:1px solid #373737; border-radius:18px; }
 .pricing-card-featured { border:2px solid #f37021; background:linear-gradient(155deg,#25201c,#191919 64%); box-shadow:0 14px 55px rgba(243,112,33,.13); transform:translateY(-7px); }
-.pricing-badge { position:absolute; right:16px; top:16px; padding:6px 9px; color:#141414; background:#f37021; border-radius:999px; font-size:9px; font-weight:900; letter-spacing:.08em; }
+.pricing-badge { position:absolute; left:50%; top:0; transform:translate(-50%,-50%); padding:6px 9px; color:#141414; background:#f37021; border-radius:999px; font-size:9px; font-weight:900; letter-spacing:.08em; white-space:nowrap; }
 .pricing-kicker { margin:0 0 12px; }
 .pricing-card h2 { min-height:48px; margin:0; color:#fff; font-size:18px; line-height:1.35; }
 .pricing-price { color:#fff; margin:24px 0 0; font-size:42px; line-height:1; font-weight:800; letter-spacing:-.05em; }
