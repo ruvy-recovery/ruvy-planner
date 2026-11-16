@@ -365,13 +365,20 @@ const emptyPerson = (name) => ({
 
 const defaultStyle = {
   title: "Mon planning",
-  bgColor: "#18132c",
+  theme: "forest",
+  bgColor: "#e7f3e9",
+  background: "linear-gradient(135deg, #eff8ef 0%, #d9eedc 52%, #c5e3cc 100%)",
   bgImage: "",
   bgOpacity: 0.25,
   dayImages: {},
   dayImageOpacity: 0.3,
-  accent: "#a78bfa",
-  textColor: "#f5f3ff",
+  accent: "#176b45",
+  textColor: "#153b2a",
+  blockColor: "#d4ead8",
+  dayColor: "rgba(247,255,248,.9)",
+  surfaceColor: "#f8fff9",
+  surfaceBorder: "#b8d8c3",
+  softSurface: "#eaf6ec",
   stickers: [],
 };
 
@@ -411,6 +418,7 @@ export default function App() {
   const [referralCode, setReferralCode] = useState("");
   const [appliedPromo, setAppliedPromo] = useState(null);
   const [referralMessage, setReferralMessage] = useState("");
+  const [fixedMessage, setFixedMessage] = useState("");
 
   const [couple, setCouple] = useState(false);
   const [people, setPeople] = useState([emptyPerson("Toi")]);
@@ -423,9 +431,9 @@ export default function App() {
   const [result, setResult] = useState(null);
   const [style, setStyle] = useState({ ...defaultStyle });
   const [paintTool, setPaintTool] = useState("pen");
-  const [paintColor, setPaintColor] = useState("#c084fc");
+  const [paintColor, setPaintColor] = useState("#176b45");
   const [paintSize, setPaintSize] = useState(5);
-  const [paintBackground, setPaintBackground] = useState("#18132c");
+  const [paintBackground, setPaintBackground] = useState("#e7f3e9");
   const [paintHistory, setPaintHistory] = useState([]);
   const [paintFuture, setPaintFuture] = useState([]);
   const [selectedSticker, setSelectedSticker] = useState(null);
@@ -514,7 +522,9 @@ export default function App() {
   const setDraftDays = (days) => setDraft((prev) => ({ ...prev, days }));
 
   const addFixed = () => {
-    if (!draft.title.trim() || draft.days.length === 0) return;
+    if (!draft.title.trim()) { setFixedMessage("Donne un nom à l'activité"); return; }
+    if (draft.days.length === 0) { setFixedMessage("Choisis au moins un jour"); return; }
+    setFixedMessage("");
     const title = draft.title.trim();
     const newItems = draft.days.map((day) => ({ title, day, start: draft.start, end: draft.end }));
     update({ fixed: [...person.fixed, ...newItems] });
@@ -1053,7 +1063,7 @@ export default function App() {
         <style>{css}</style>
         <header className="pricing-header">
           <button type="button" className="pricing-back" onClick={() => { setShowPricing(false); setShowLanding(true); }}>← Retour</button>
-          <p className="pricing-eyebrow">RUVY PLANNER · À TOI DE JOUER</p>
+          <p className="pricing-eyebrow">✦ RUVY sas ✦ · PLANNER · À TOI DE JOUER</p>
           <h1>Choisis ta formule</h1>
           <p className="pricing-intro">Un planning pensé pour trouver le bon rythme, à deux ou en solo.</p>
         </header>
@@ -1092,7 +1102,7 @@ export default function App() {
           {referralMessage && <p className="referral-error" role="alert">{referralMessage}</p>}
         </form>
         <p className="pricing-footnote">Paiement sécurisé par Stripe · Accès à ton planning après sélection.</p>
-      </main><div className="legal-pricing-links" style={{display:"flex",justifyContent:"center",gap:18,padding:"14px",background:"#101110"}}><button type="button" className="link" onClick={()=>setLegalPage("mentions")}>Mentions légales</button><button type="button" className="link" onClick={()=>setLegalPage("privacy")}>Confidentialité</button><button type="button" className="link" onClick={()=>setLegalPage("terms")}>CGU / CGV</button></div><CookieNotice choice={cookieChoice} setChoice={setCookieChoice} /></>
+      </main><div className="legal-pricing-links" style={{display:"flex",justifyContent:"center",gap:18,padding:"14px",background:"#f4f3ec"}}><button type="button" className="link" onClick={()=>setLegalPage("mentions")}>Mentions légales</button><button type="button" className="link" onClick={()=>setLegalPage("privacy")}>Confidentialité</button><button type="button" className="link" onClick={()=>setLegalPage("terms")}>CGU / CGV</button></div><CookieNotice choice={cookieChoice} setChoice={setCookieChoice} /></>
     );
   }
 
@@ -1120,12 +1130,16 @@ export default function App() {
       </header>
 
       <div className={step === 4 ? "progress no-print editor-hidden" : "progress no-print"}>
-        <div className="progress-labels">
-          {STEPS.map((s, i) => (
-            <span key={s} className={i <= step ? "on" : ""}>{s}</span>
-          ))}
-        </div>
-        <div className="bar"><div className="fill" style={{ width: progress + "%" }} /></div>
+        <ol className="progress-steps" aria-label="Étapes de création du planning">
+          {[...STEPS, "Ton planning"].map((label, i) => {
+            const completed = step === 4 || i < step;
+            const current = step < 4 && i === step;
+            return <li key={label} className={`progress-step${current ? " current" : ""}${completed ? " completed" : ""}`} aria-current={current ? "step" : undefined}>
+              <span className="progress-number">{completed ? "✓" : i + 1}</span>
+              <span className="progress-name">{label}</span>
+            </li>;
+          })}
+        </ol>
       </div>
 
       {couple && step < 4 && (
@@ -1141,11 +1155,9 @@ export default function App() {
       {/* ---------- ÉTAPE 1 : PROFIL ---------- */}
       {step === 0 && (
         <section className="card">
-          <div className="profile-heading">
-            <h2>Pour qui est ce planning ?</h2>
-            <button type="button" className="btn ghost home-button" onClick={goHome}>← Retour à l'accueil</button>
-          </div>
-          <div className="choices">
+          <button type="button" className="home-link" onClick={goHome}>← Retour à l'accueil</button>
+          <div className="profile-heading"><h2>Pour qui est ce planning ?</h2></div>
+          <div className="choices profile-choices">
             <button className={!couple ? "choice on" : "choice"} onClick={() => toggleCouple(false)}>
               <strong>Moi seul</strong>
               <span>Un planning personnel</span>
@@ -1157,7 +1169,7 @@ export default function App() {
           </div>
 
           <h2>Ton niveau</h2>
-          <div className="choices">
+          <div className="choices level-choices">
             {LEVELS.map((l) => (
               <button
                 key={l.id}
@@ -1195,7 +1207,7 @@ export default function App() {
               className="input full"
               placeholder="Ex : MMA, Travail, Cours..."
               value={draft.title}
-              onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+              onChange={(e) => { setDraft({ ...draft, title: e.target.value }); setFixedMessage(""); }}
             />
 
             <label className="label">2. Quels jours ? <em>(tu peux en cocher plusieurs)</em></label>
@@ -1204,7 +1216,7 @@ export default function App() {
                 <button
                   key={d}
                   className={draft.days.includes(d) ? "chip on" : "chip"}
-                  onClick={() => toggleDraftDay(d)}
+                  onClick={() => { toggleDraftDay(d); setFixedMessage(""); }}
                 >
                   {SHORT[d]}
                 </button>
@@ -1228,11 +1240,11 @@ export default function App() {
               <button
                 className="btn"
                 onClick={addFixed}
-                disabled={!draft.title.trim() || draft.days.length === 0}
               >
                 Ajouter
               </button>
             </div>
+            {fixedMessage && <p className="inline-message" role="status">{fixedMessage}</p>}
           </div>
 
           <ul className="list">
@@ -1255,9 +1267,22 @@ export default function App() {
       {step === 2 && (
         <section className="card">
           <h2>Ce que tu veux ajouter</h2>
-          <p className="hint">Chaque activité peut avoir ses propres réglages : nombre de séances et moments.</p>
+          <p className="hint small objectives-hint">Chaque activité peut avoir ses propres réglages : nombre de séances et moments.</p>
 
-          <div className="row time-range-fields">
+          <div className="row">
+            <input
+              className="input grow"
+              placeholder="Ex : Boxe, Yoga, Course..."
+              value={wantDraft}
+              onChange={(e) => setWantDraft(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && addWant()}
+            />
+            <button className="btn" onClick={addWant}>Ajouter</button>
+          </div>
+
+          <div className="time-range-block">
+            <div className="range-title">Plage horaire</div>
+            <div className="row time-range-fields">
             <label className="field">Première séance à
               <select className="input" value={person.firstSessionHour} onChange={(e) => update({ firstSessionHour: Number(e.target.value) })}>
                 {Array.from({ length: 19 }, (_, i) => i + 5).map((h) => <option key={h} value={h}>{h}h</option>)}
@@ -1269,17 +1294,7 @@ export default function App() {
               </select>
             </label>
             {Number(person.lastSessionHour) <= Number(person.firstSessionHour) && <span className="range-warning">La dernière heure doit être après la première.</span>}
-          </div>
-
-          <div className="row">
-            <input
-              className="input grow"
-              placeholder="Ex : Boxe, Yoga, Course..."
-              value={wantDraft}
-              onChange={(e) => setWantDraft(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addWant()}
-            />
-            <button className="btn" onClick={addWant}>Ajouter</button>
+            </div>
           </div>
 
           <div className="wants">
@@ -1334,7 +1349,7 @@ export default function App() {
               </div>
             ))}
             {person.wants.length === 0 && (
-              <div className="want-empty">Rien d'ajouté. Tu peux passer à l'étape suivante.</div>
+              <div className="want-empty hint small">Rien d'ajouté. Tu peux passer à l'étape suivante.</div>
             )}
           </div>
         </section>
@@ -1461,9 +1476,7 @@ export default function App() {
 
       {step < 4 && (
         <footer className="nav no-print">
-          <button className="btn ghost" disabled={step === 0} onClick={() => setStep(step - 1)}>
-            Retour
-          </button>
+          {step > 0 ? <button className="btn ghost" onClick={() => setStep(step - 1)}>Retour</button> : <span className="nav-spacer" aria-hidden="true" />}
           <button className="btn" disabled={loading} onClick={next}>
             {step === 2 ? (loading ? "Génération..." : "Générer le planning") : "Suivant"}
           </button>
@@ -1483,35 +1496,46 @@ export default function App() {
 
 const css = `
 * { box-sizing: border-box; }
-body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
-.app { max-width: 820px; margin: 0 auto; padding: 48px 20px 80px; font-family: Inter, system-ui, -apple-system, sans-serif; color: #151515; }
-.top h1 { font-size: 32px; margin: 0 0 8px; letter-spacing: -0.03em; font-weight: 700; }
-.top p { margin: 0; color: #6b6b6b; font-size: 16px; }
-.progress { margin: 36px 0 24px; }
-.progress-labels { display: flex; justify-content: space-between; font-size: 13px; color: #a3a3a3; margin-bottom: 10px; }
-.progress-labels .on { color: #151515; font-weight: 600; }
-.bar { height: 3px; background: #e7e7e4; border-radius: 4px; overflow: hidden; }
-.fill { height: 100%; background: #14532d; transition: width .35s ease; }
+html, body, #root { width:100%; min-height:100%; margin:0; background:#f4f3ec; -webkit-font-smoothing:antialiased; }
+body { overflow-x:hidden; }
+.app { width:100%; max-width:none; min-height:100vh; margin:0; padding:44px 20px 80px; font-family:Georgia,"Palatino Linotype",serif; color:#26362c; background:#f4f3ec; }
+.app > .top, .app > .progress, .app > .tabs, .app > .card, .app > .nav, .app > .error { width:min(640px,100%); margin-left:auto; margin-right:auto; }
+.app > .top, .app > .progress, .app > .tabs, .app > .nav, .app > .error { max-width:640px; }
+.app > .card { border:0; box-shadow:none; background:transparent; border-radius:0; padding:28px 0; margin-top:0; margin-bottom:10px; }
+.top { padding-top:10px; }
+.top h1 { font-family:Georgia,"Palatino Linotype",serif; font-size:34px; margin:0 0 8px; letter-spacing:-.04em; font-weight:700; color:#173e2a; }
+.top p { margin:0; color:#728074; font-size:15px; }
+.progress { margin:30px auto 20px; }
+.progress-steps { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); position:relative; }
+.progress-steps:before { content:""; position:absolute; left:12.5%; right:12.5%; top:17px; height:2px; background:#d7ded2; }
+.progress-step { z-index:1; display:flex; flex-direction:column; align-items:center; gap:8px; color:#8a9589; text-align:center; font:600 12px/1.2 system-ui,sans-serif; }
+.progress-number { width:36px; height:36px; display:grid; place-items:center; border:1px solid #d5ded2; border-radius:50%; background:#f4f3ec; color:#7f8d80; font:700 14px system-ui,sans-serif; transition:all .2s; }
+.progress-step.current .progress-number { border-color:#17683f; background:#17683f; color:#fff; box-shadow:0 0 0 5px #dce9dd; }
+.progress-step.completed .progress-number { border-color:#17683f; background:#e3eee4; color:#17683f; }
+.progress-step.current .progress-name,.progress-step.completed .progress-name { color:#244b34; }
+.bar,.fill,.progress-labels { display:none; }
 .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
 .tab { padding: 9px 18px; border: 1px solid #e3e3df; background: #fff; border-radius: 999px; cursor: pointer; font-size: 14px; color: #151515; font-family: inherit; }
 .tab.on { background: #151515; color: #fff; border-color: #151515; }
-.card { background: #fff; border: 1px solid #ebebe8; border-radius: 20px; padding: 36px; box-shadow: 0 1px 2px rgba(0,0,0,.03); margin-bottom: 20px; }
+.card { background:transparent; border:0; border-radius:0; padding:28px 0; box-shadow:none; margin-bottom:10px; }
 .card h2 { font-size: 18px; margin: 32px 0 6px; color: #151515; font-weight: 600; letter-spacing: -0.01em; }
 .card h2:first-child { margin-top: 0; }
 .hint { color: #6b6b6b; font-size: 14px; margin: 0 0 14px; line-height: 1.5; }
 .hint.small { font-size: 12px; margin-top: 10px; }
-.choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 12px; }
-.choice { text-align: left; padding: 18px; border: 1px solid #e3e3df; background: #fff; border-radius: 14px; cursor: pointer; display: flex; flex-direction: column; gap: 4px; color: #151515; font-family: inherit; font-size: 15px; transition: border-color .15s; }
+.choices { display:grid; gap:12px; margin-top:12px; }
+.profile-choices { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.level-choices { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.choice { min-height:76px; text-align:left; padding:16px; border:1px solid #dfe5da; background:#fffefa; border-radius:14px; cursor:pointer; display:flex; flex-direction:column; justify-content:center; gap:4px; color:#26362c; font-family:inherit; font-size:15px; transition:border-color .15s,background .15s; }
 .choice span { font-size: 13px; color: #6b6b6b; }
 .choice:hover { border-color: #b9b9b3; }
-.choice.on { border-color: #14532d; background: #f2f8f4; }
+.choice.on { border-color:#17683f; background:#e9f1e8; box-shadow:inset 0 0 0 1px #17683f; }
 .form-block { display: flex; flex-direction: column; gap: 10px; background: #fafaf8; border: 1px solid #efefeb; border-radius: 16px; padding: 22px; margin-top: 8px; }
 .label { font-size: 14px; font-weight: 600; margin-top: 10px; display: block; }
 .label:first-child { margin-top: 0; }
 .label em { font-weight: 400; color: #8a8a8a; font-style: normal; }
 .full { width: 100%; }
 .shortcuts { display: flex; flex-wrap: wrap; gap: 14px; }
-.link-btn { background: none; border: none; padding: 0; color: #14532d; font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; text-decoration: underline; text-underline-offset: 3px; }
+.link-btn { min-height:44px; background:none; border:0; padding:6px 2px; color:#17683f; font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; text-decoration: underline; text-underline-offset: 3px; }
 .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
 .row.spaced { margin-top: 16px; margin-bottom: 6px; }
 .row.end { justify-content: flex-end; margin-top: 32px; }
@@ -1538,7 +1562,8 @@ body { margin: 0; background: #f7f7f5; -webkit-font-smoothing: antialiased; }
 .chip { padding: 9px 18px; border: 1px solid #e0e0dc; background: #fff; border-radius: 999px; cursor: pointer; font-size: 14px; color: #151515; font-family: inherit; transition: all .15s; }
 .chip:hover { border-color: #b9b9b3; }
 .chip.on { background: #14532d; color: #fff; border-color: #14532d; }
-.nav { display: flex; justify-content: space-between; margin-top: 24px; }
+.nav { display:flex; justify-content:space-between; align-items:center; gap:14px; margin:18px auto 0; min-height:48px; }
+.nav-spacer { width:1px; }
 .error { color: #b91c1c; font-size: 14px; margin-top: 18px; }
 .week { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-top: 8px; }
 .day { border: 1px solid #ececE8; border-radius: 12px; padding: 12px; min-height: 120px; background: rgba(255,255,255,.6); }
@@ -1641,6 +1666,63 @@ html.editor-active, html.editor-active body { background:#f7f7f5; color:#151515;
 .profile-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:24px; }
 .profile-heading h2 { margin:0; }
 .home-button { min-height:44px; flex:0 0 auto; }
+
+/* Parcours compact, aligné et tactile */
+.home-link { display:inline-flex; min-height:32px; align-items:center; padding:0; margin:0 0 20px; border:0; background:none; color:#778477; font:500 12px system-ui,sans-serif; text-decoration:underline; text-underline-offset:3px; cursor:pointer; }
+.profile-heading { margin:0 0 8px; }
+.profile-heading h2 { color:#193d2a; font-size:22px; }
+.card h2 { color:#193d2a; }
+.choice span { line-height:1.4; }
+.input { min-height:44px; border-color:#dce3d8; border-radius:10px; }
+.btn { min-height:46px; background:#17683f; border-color:#17683f; color:#fff; }
+.btn:hover:not(:disabled) { background:#105331; }
+.chip { min-height:44px; min-width:44px; padding:9px 15px; }
+.form-block { background:#fbfbf7; border-color:#e7e9e1; padding:20px; }
+.inline-message { margin:2px 0 0; color:#9a5930; font:500 12px/1.4 system-ui,sans-serif; }
+.list li { border-color:#e3e8df; background:#fffefa; padding:10px 13px; }
+.list li > div { min-width:0; }
+.list li strong { margin-bottom:1px; }
+.list .link { min-height:44px; padding:8px 10px; color:#8b5745; }
+.time-range-block { margin-top:15px; padding:12px 0 0; border-top:1px solid #e4e8df; }
+.range-title { margin-bottom:8px; color:#718073; font:600 12px system-ui,sans-serif; }
+.time-range-fields { margin:0; }
+.time-range-fields .field { flex:1; min-width:135px; }
+.want-empty { margin:0; }
+.wants { margin-top:14px; gap:9px; }
+.want-card { border-color:#e1e7de; border-radius:12px; background:#fffefa; padding:14px; gap:8px; }
+.want-card .label { margin-top:5px; }
+.want-head .link { min-height:44px; }
+.pricing-page, .pricing-page * { box-sizing:border-box; }
+html.pricing-active, html.pricing-active body, html.pricing-active #root { min-height:100%; width:100%; background:#f4f3ec; }
+.pricing-page { color:#27382d; background:#f4f3ec; font-family:Georgia,"Palatino Linotype",serif; }
+.pricing-header h1 { color:#193d2a; font-family:Georgia,"Palatino Linotype",serif; font-weight:700; letter-spacing:-.045em; font-size:clamp(38px,6vw,64px); }
+.pricing-eyebrow,.pricing-kicker { color:#62806a; }
+.pricing-eyebrow { letter-spacing:.12em; }
+.pricing-intro { color:#6f7c70; }
+.pricing-back { border-color:#d4ddd2; color:#385440; }
+.pricing-back:hover { border-color:#17683f; color:#17683f; }
+.pricing-card { background:#fffefa; border-color:#e0e6dc; border-radius:16px; box-shadow:0 8px 26px rgba(30,53,34,.055); }
+.pricing-card-featured { border:2px solid #17683f; background:linear-gradient(155deg,#f7fbf4,#fffefa 70%); box-shadow:0 15px 38px rgba(23,104,63,.11); }
+.pricing-badge { color:#fff; background:#17683f; }
+.pricing-card h2,.pricing-price { color:#22392a; }
+.pricing-price span,.pricing-detail { color:#758176; }
+.pricing-choose,.pricing-redeem { min-height:48px; border-color:#17683f; background:#17683f; color:#fff; font-family:system-ui,sans-serif; }
+.pricing-choose:hover,.pricing-redeem:hover { background:#105331; }
+.pricing-card:not(.pricing-card-featured) .pricing-choose { border-color:#cbd7ca; color:#31533a; background:transparent; }
+.pricing-card:not(.pricing-card-featured) .pricing-choose:hover { border-color:#17683f; color:#17683f; }
+.referral-box { border-color:#e0e6dc; background:#fffefa; }
+.referral-box label { color:#294331; }
+.referral-box > p,.pricing-footnote { color:#768277; }
+.referral-row .input { background:#fff; border-color:#dce3d8; color:#26362c; }
+.referral-row .input:focus { border-color:#17683f; box-shadow:0 0 0 3px rgba(23,104,63,.12); }
+.pricing-remove-code { color:#4b624f; border-color:#cbd7ca; }
+.pricing-remove-code:hover { border-color:#17683f; color:#17683f; }
+.referral-error { color:#a63b31 !important; }
+.legal-pricing-links { background:#f4f3ec !important; }
+.legal-pricing-links .link { color:#728074; }
+@media(max-width:760px) { .app { padding:28px 18px 52px; }.app > .card { padding:22px 0; }.pricing-header { padding-top:36px; }.pricing-grid { grid-template-columns:1fr; gap:14px; }.pricing-card { min-height:0; }.pricing-card-featured { transform:none; order:-1; }.pricing-card h2,.pricing-detail { min-height:0; }.pricing-choose { margin-top:8px; }.referral-box { padding:18px; } }
+@media(max-width:639px) { .level-choices { grid-template-columns:1fr; }.level-choices .choice { min-height:62px; }.profile-choices .choice { min-height:82px; padding:13px; }.progress-name { font-size:11px; }.progress-number { width:34px; height:34px; }.progress-steps:before { top:16px; }.row { align-items:stretch; }.row > .btn { min-width:100px; }.form-block { padding:15px; }.shortcuts { gap:8px 12px; }.nav { margin-top:14px; } }
+@media(max-width:420px) { .referral-row { flex-direction:column; }.pricing-redeem { width:100%; }.profile-choices { gap:8px; }.profile-choices .choice { font-size:14px; }.progress-name { font-size:10px; } }
 
 /* Couleurs du thème limitées au contenu du planning, jamais aux commandes de l'atelier. */
 .export-zone[data-planner-theme="sunset"] .rest { color:#60321f; background:#ffe7d5; border-color:#edc09e; }
@@ -1894,4 +1976,26 @@ html.pricing-active body { min-width:100%; }
 .pricing-footnote { margin:18px 0 0; text-align:center; color:#777; font-size:11px; }
 @media(max-width:760px) { .pricing-page { padding:24px 14px 36px; }.pricing-header { padding-top:36px; }.pricing-back { top:0; }.pricing-grid { grid-template-columns:1fr; gap:12px; }.pricing-card { min-height:0; }.pricing-card-featured { transform:none; order:-1; }.pricing-card h2,.pricing-detail { min-height:0; }.pricing-choose { margin-top:8px; }.referral-box { padding:18px; } }
 @media(max-width:420px) { .referral-row { flex-direction:column; }.pricing-redeem { width:100%; } }
+/* Final cascade: tarif RUVY et page entière dans la palette sauge / crème. */
+html.pricing-active, html.pricing-active body, html.pricing-active #root { background:#f4f3ec; }
+.pricing-page { background:#f4f3ec; color:#27382d; font-family:Georgia,"Palatino Linotype",serif; }
+.pricing-header h1 { color:#193d2a; font-family:Georgia,"Palatino Linotype",serif; font-weight:700; letter-spacing:-.045em; }
+.pricing-eyebrow,.pricing-kicker { color:#62806a; }
+.pricing-intro,.pricing-detail,.pricing-footnote { color:#758176; }
+.pricing-back { border-color:#d4ddd2; color:#385440; }
+.pricing-card { background:#fffefa; border-color:#e0e6dc; box-shadow:0 8px 26px rgba(30,53,34,.055); }
+.pricing-card-featured { border:2px solid #17683f; background:linear-gradient(155deg,#f7fbf4,#fffefa 70%); box-shadow:0 15px 38px rgba(23,104,63,.11); }
+.pricing-badge { color:#fff; background:#17683f; }
+.pricing-card h2,.pricing-price { color:#22392a; }
+.pricing-price span { color:#758176; }
+.pricing-choose,.pricing-redeem { border-color:#17683f; background:#17683f; color:#fff; }
+.pricing-card:not(.pricing-card-featured) .pricing-choose { border-color:#cbd7ca; color:#31533a; background:transparent; }
+.referral-box { border-color:#e0e6dc; background:#fffefa; }
+.referral-box label { color:#294331; }
+.referral-box > p { color:#768277; }
+.referral-row .input { background:#fff; border-color:#dce3d8; color:#26362c; }
+.referral-row .input:focus { border-color:#17683f; box-shadow:0 0 0 3px rgba(23,104,63,.12); }
+.pricing-remove-code { color:#4b624f; border-color:#cbd7ca; }
+.legal-pricing-links { background:#f4f3ec !important; }
+
 `;
