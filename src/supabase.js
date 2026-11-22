@@ -4,7 +4,7 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.error("Variables Supabase manquantes : vérifie .env.local et Vercel.");
+  console.error("Variables Supabase manquantes : verifie .env.local et Vercel.");
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
